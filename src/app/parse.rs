@@ -59,3 +59,7 @@ async fn load_app_files(qa_file: &Path) -> anyhow::Result<Vec<AppFileEntry>> {
     files.sort_by(|left, right| left.name.cmp(&right.name));
     Ok(files)
 }
+
+#[cfg(test)]
+#[path = "parse_test.rs"]
+mod parse_test;

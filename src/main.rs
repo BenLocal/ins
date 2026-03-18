@@ -7,6 +7,7 @@ use crate::cli::{
 
 mod app;
 mod cli;
+mod file;
 mod node;
 mod provider;
 

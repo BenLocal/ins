@@ -1,6 +1,7 @@
 use async_trait::async_trait;
+use std::path::PathBuf;
 
-use crate::node::types::NodeRecord;
+use crate::{app::types::AppRecord, node::types::NodeRecord};
 
 pub mod docker_compose;
 
@@ -8,7 +9,24 @@ pub mod docker_compose;
 pub struct ProviderContext {
     pub provider: String,
     pub node: NodeRecord,
-    pub apps: Vec<String>,
+    pub apps: Vec<AppRecord>,
+    pub workspace: PathBuf,
+}
+
+impl ProviderContext {
+    pub fn new(
+        provider: String,
+        node: NodeRecord,
+        apps: Vec<AppRecord>,
+        workspace: PathBuf,
+    ) -> Self {
+        Self {
+            provider,
+            node,
+            apps,
+            workspace,
+        }
+    }
 }
 
 #[async_trait]

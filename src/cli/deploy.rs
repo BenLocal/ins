@@ -46,24 +46,26 @@ impl CommandTrait for DeployCommand {
         let nodes = load_all_nodes(&nodes_file(&ctx.home)).await?;
         let node = select_node(&nodes, args.node.as_deref())?;
         let app_home = ctx.home.join("app");
-        let apps = resolve_apps(args.apps, &app_home).await?;
+        let app_names = resolve_apps(args.apps, &app_home).await?;
+        let apps = load_app_records_by_names(&app_names, &app_home).await?;
 
         println!("Starting deployment...");
         println!("Provider Name: {}", &args.provider);
         println!("Node Name: {}", node_name(&node));
-        println!("Apps: {}", &apps.join(", "));
+        println!("Apps: {}", &app_names.join(", "));
         println!("Workspace: {}", args.workspace.display());
 
         println!("Copying apps to workspace...");
-        copy_apps_to_workspace(&apps, &app_home, &args.workspace).await?;
+        copy_apps_to_workspace(&app_names, &app_home, &args.workspace).await?;
 
         println!("Running provider...");
         provider
-            .run(ProviderContext {
-                provider: args.provider,
+            .run(ProviderContext::new(
+                args.provider,
                 node,
                 apps,
-            })
+                args.workspace,
+            ))
             .await?;
 
         Ok(())
@@ -115,6 +117,22 @@ async fn resolve_apps(
     }
 
     Ok(selected)
+}
+
+async fn load_app_records_by_names(
+    apps: &[String],
+    app_home: &Path,
+) -> anyhow::Result<Vec<AppRecord>> {
+    let mut records = Vec::new();
+
+    for app_name in apps {
+        let app_dir = app_home.join(app_name);
+        let qa_file = app_qa_file(&app_dir);
+        let record = load_app_record(&qa_file).await?;
+        records.push(record);
+    }
+
+    Ok(records)
 }
 
 async fn copy_apps_to_workspace(
@@ -240,10 +258,7 @@ fn build_template_values(app_record: &AppRecord) -> anyhow::Result<Value> {
             let Some(name) = value.get("name").and_then(|value| value.as_str()) else {
                 continue;
             };
-            let resolved_value = resolved_values
-                .get(index)
-                .cloned()
-                .unwrap_or(Value::Null);
+            let resolved_value = resolved_values.get(index).cloned().unwrap_or(Value::Null);
             let mut enriched_value = value.clone();
             if let Some(obj) = enriched_value.as_object_mut() {
                 obj.insert("resolved".to_string(), resolved_value.clone());
@@ -260,11 +275,7 @@ fn build_template_values(app_record: &AppRecord) -> anyhow::Result<Value> {
 }
 
 fn resolve_app_values(app_record: &AppRecord) -> anyhow::Result<Vec<Value>> {
-    app_record
-        .values
-        .iter()
-        .map(resolve_app_value)
-        .collect()
+    app_record.values.iter().map(resolve_app_value).collect()
 }
 
 fn resolve_app_value(value: &AppValue) -> anyhow::Result<Value> {
@@ -307,7 +318,9 @@ fn resolve_app_value(value: &AppValue) -> anyhow::Result<Value> {
 fn prompt_value_by_type(value: &AppValue) -> anyhow::Result<Value> {
     match value.value_type.as_str() {
         "boolean" => Ok(Value::Bool(
-            Confirm::new(&value_prompt(value)).with_default(false).prompt()?,
+            Confirm::new(&value_prompt(value))
+                .with_default(false)
+                .prompt()?,
         )),
         "number" => Ok(serde_json::Number::from_f64(
             CustomType::<f64>::new(&value_prompt(value)).prompt()?,
@@ -316,7 +329,8 @@ fn prompt_value_by_type(value: &AppValue) -> anyhow::Result<Value> {
         .ok_or_else(|| anyhow!("invalid number for '{}'", value.name))?),
         "json" => {
             let raw = Text::new(&format!("{} (JSON)", value_prompt(value))).prompt()?;
-            serde_json::from_str(&raw).map_err(|e| anyhow!("invalid json for '{}': {}", value.name, e))
+            serde_json::from_str(&raw)
+                .map_err(|e| anyhow!("invalid json for '{}': {}", value.name, e))
         }
         _ => Ok(Value::String(Text::new(&value_prompt(value)).prompt()?)),
     }
@@ -407,277 +421,5 @@ fn node_label(node: &NodeRecord) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{
-        build_template_values, copy_apps_to_workspace, is_template_file, load_available_apps,
-        rendered_template_name, resolve_apps, select_node,
-    };
-    use crate::app::types::{AppRecord, AppValue, AppValueOption, ScriptHook};
-    use crate::node::types::{NodeRecord, RemoteNodeRecord};
-    use serde_json::json;
-    use std::{
-        env,
-        path::PathBuf,
-        time::{SystemTime, UNIX_EPOCH},
-    };
-    use tokio::fs;
-
-    const QA_TEMPLATE: &str = include_str!("../../template/qa.yaml");
-
-    #[test]
-    fn select_node_returns_requested_node_when_it_exists() {
-        let nodes = vec![
-            NodeRecord::Remote(RemoteNodeRecord {
-                name: "node-a".into(),
-                ip: "10.0.0.1".into(),
-                port: 22,
-                user: "root".into(),
-                password: "secret".into(),
-            }),
-            NodeRecord::Remote(RemoteNodeRecord {
-                name: "node-b".into(),
-                ip: "10.0.0.2".into(),
-                port: 22,
-                user: "root".into(),
-                password: "secret".into(),
-            }),
-        ];
-
-        let selected = select_node(&nodes, Some("node-b")).expect("node should exist");
-        match selected {
-            NodeRecord::Remote(node) => assert_eq!(node.name, "node-b"),
-            NodeRecord::Local() => panic!("expected remote node"),
-        }
-    }
-
-    #[test]
-    fn select_node_returns_error_when_no_nodes_exist() {
-        let err = select_node(&[], None).expect_err("empty nodes should fail");
-        assert!(err.to_string().contains("no nodes found"));
-    }
-
-    #[tokio::test]
-    async fn resolve_apps_returns_requested_apps_when_present() {
-        let apps = resolve_apps(
-            Some(vec!["app-a".into(), "app-b".into()]),
-            PathBuf::from("/tmp/unused").as_path(),
-        )
-        .await
-        .expect("apps should pass through");
-        assert_eq!(apps, vec!["app-a", "app-b"]);
-    }
-
-    #[tokio::test]
-    async fn resolve_apps_returns_error_when_no_apps_exist() -> anyhow::Result<()> {
-        let app_home = unique_test_dir("deploy-apps-empty");
-        fs::create_dir_all(&app_home).await?;
-
-        let err = resolve_apps(None, &app_home)
-            .await
-            .expect_err("missing apps should fail");
-        assert!(err.to_string().contains("no apps found"));
-
-        fs::remove_dir_all(&app_home).await?;
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn load_available_apps_reads_apps_from_qa_files() -> anyhow::Result<()> {
-        let app_home = unique_test_dir("deploy-apps-list");
-        let alpha_dir = app_home.join("alpha");
-        let beta_dir = app_home.join("beta");
-        fs::create_dir_all(&alpha_dir).await?;
-        fs::create_dir_all(&beta_dir).await?;
-        fs::write(
-            alpha_dir.join("qa.yaml"),
-            QA_TEMPLATE.replace("<name>", "alpha"),
-        )
-        .await?;
-        fs::write(
-            beta_dir.join("qa.yaml"),
-            QA_TEMPLATE.replace("<name>", "beta"),
-        )
-        .await?;
-
-        let apps = load_available_apps(&app_home).await?;
-        assert_eq!(apps, vec!["alpha".to_string(), "beta".to_string()]);
-
-        fs::remove_dir_all(&app_home).await?;
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn copy_apps_to_workspace_copies_app_files() -> anyhow::Result<()> {
-        let app_home = unique_test_dir("deploy-copy-app-home");
-        let workspace = unique_test_dir("deploy-copy-workspace");
-        let alpha_dir = app_home.join("alpha");
-        let scripts_dir = alpha_dir.join("scripts");
-
-        fs::create_dir_all(&scripts_dir).await?;
-        fs::write(
-            alpha_dir.join("qa.yaml"),
-            QA_TEMPLATE.replace("<name>", "alpha"),
-        )
-        .await?;
-        fs::write(alpha_dir.join("README.md"), "hello").await?;
-        fs::write(scripts_dir.join("run.sh"), "#!/bin/bash").await?;
-
-        copy_apps_to_workspace(&["alpha".into()], &app_home, &workspace).await?;
-
-        assert!(fs::try_exists(workspace.join("alpha").join("qa.yaml")).await?);
-        assert!(fs::try_exists(workspace.join("alpha").join("README.md")).await?);
-        assert!(fs::try_exists(workspace.join("alpha").join("scripts").join("run.sh")).await?);
-
-        fs::remove_dir_all(&app_home).await?;
-        fs::remove_dir_all(&workspace).await?;
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn copy_apps_to_workspace_renders_template_files() -> anyhow::Result<()> {
-        let app_home = unique_test_dir("deploy-render-app-home");
-        let workspace = unique_test_dir("deploy-render-workspace");
-        let alpha_dir = app_home.join("alpha");
-        let qa = r#"
-name: alpha
-description: demo
-before:
-  shell: bash
-  script: ./before.sh
-after:
-  shell: bash
-  script: ./after.sh
-values:
-  - name: image
-    type: string
-    description: image name
-    options:
-      - name: nginx
-        description: nginx image
-        value: nginx:latest
-"#;
-
-        fs::create_dir_all(&alpha_dir).await?;
-        fs::write(alpha_dir.join("qa.yaml"), qa.trim_start()).await?;
-        fs::write(
-            alpha_dir.join("docker-compose.yml.j2"),
-            "name={{ app.name }}\nimage={{ vars.image }}\n",
-        )
-        .await?;
-
-        copy_apps_to_workspace(&["alpha".into()], &app_home, &workspace).await?;
-
-        let rendered = fs::read_to_string(workspace.join("alpha").join("docker-compose.yml")).await?;
-        assert_eq!(rendered, "name=alpha\nimage=nginx:latest");
-
-        fs::remove_dir_all(&app_home).await?;
-        fs::remove_dir_all(&workspace).await?;
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn copy_apps_to_workspace_allows_missing_template_values() -> anyhow::Result<()> {
-        let app_home = unique_test_dir("deploy-render-missing-home");
-        let workspace = unique_test_dir("deploy-render-missing-workspace");
-        let alpha_dir = app_home.join("alpha");
-        let qa = r#"
-name: alpha
-description: demo
-before:
-  shell: bash
-  script: ./before.sh
-after:
-  shell: bash
-  script: ./after.sh
-values: []
-"#;
-
-        fs::create_dir_all(&alpha_dir).await?;
-        fs::write(alpha_dir.join("qa.yaml"), qa.trim_start()).await?;
-        fs::write(
-            alpha_dir.join("app.conf.j2"),
-            "name={{ app.name }}\nmissing={{ vars.not_found }}\n",
-        )
-        .await?;
-
-        copy_apps_to_workspace(&["alpha".into()], &app_home, &workspace).await?;
-
-        let rendered = fs::read_to_string(workspace.join("alpha").join("app.conf")).await?;
-        assert_eq!(rendered, "name=alpha\nmissing=");
-
-        fs::remove_dir_all(&app_home).await?;
-        fs::remove_dir_all(&workspace).await?;
-        Ok(())
-    }
-
-    #[test]
-    fn template_file_detection_and_output_name_work() {
-        assert!(is_template_file("a.j2"));
-        assert!(is_template_file("a.jinja"));
-        assert!(is_template_file("a.jinja2"));
-        assert!(is_template_file("a.tmpl"));
-        assert!(!is_template_file("a.yaml"));
-        assert_eq!(rendered_template_name("a.j2"), "a");
-        assert_eq!(rendered_template_name("a.jinja"), "a");
-        assert_eq!(rendered_template_name("a.jinja2"), "a");
-        assert_eq!(rendered_template_name("a.tmpl"), "a");
-    }
-
-    #[test]
-    fn build_template_values_prefers_value_then_default_then_option() {
-        let record = AppRecord {
-            name: "demo".into(),
-            description: None,
-            before: ScriptHook::default(),
-            after: ScriptHook::default(),
-            files: None,
-            values: vec![
-                AppValue {
-                    name: "from_value".into(),
-                    value_type: "string".into(),
-                    description: None,
-                    value: Some(json!("explicit")),
-                    default: Some(json!("default")),
-                    options: vec![AppValueOption {
-                        name: "opt".into(),
-                        description: None,
-                        value: Some(json!("option")),
-                    }],
-                },
-                AppValue {
-                    name: "from_default".into(),
-                    value_type: "number".into(),
-                    description: None,
-                    value: None,
-                    default: Some(json!(5)),
-                    options: vec![],
-                },
-                AppValue {
-                    name: "from_option".into(),
-                    value_type: "string".into(),
-                    description: None,
-                    value: None,
-                    default: None,
-                    options: vec![AppValueOption {
-                        name: "opt".into(),
-                        description: None,
-                        value: Some(json!("picked")),
-                    }],
-                },
-            ],
-        };
-
-        let template_values = build_template_values(&record).expect("template values");
-        assert_eq!(template_values["vars"]["from_value"], json!("explicit"));
-        assert_eq!(template_values["vars"]["from_default"], json!(5));
-        assert_eq!(template_values["vars"]["from_option"], json!("picked"));
-    }
-
-    fn unique_test_dir(name: &str) -> PathBuf {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system time before unix epoch")
-            .as_nanos();
-        env::temp_dir().join(format!("ins-{name}-{}-{nanos}", std::process::id()))
-    }
-}
+#[path = "deploy_test.rs"]
+mod deploy_test;

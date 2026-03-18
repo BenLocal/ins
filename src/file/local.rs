@@ -1,4 +1,3 @@
-use std::io::IsTerminal;
 use std::path::Path;
 
 use anyhow::Context;
@@ -6,7 +5,7 @@ use async_trait::async_trait;
 use tokio::fs;
 use tokio::io::AsyncReadExt;
 
-use super::{progress_for_read, progress_for_write, FileTrait, ProgressFn};
+use super::{with_read_progress, with_write_progress, FileTrait, ProgressFn};
 
 const CHUNK_SIZE: usize = 64 * 1024;
 
@@ -16,13 +15,7 @@ pub struct LocalFile;
 #[async_trait]
 impl FileTrait for LocalFile {
     async fn read(&self, path: &Path, progress: Option<&ProgressFn>) -> anyhow::Result<String> {
-        let (bar, own_prog) = if progress.is_none() && std::io::stdout().is_terminal() {
-            let (b, p) = progress_for_read(path);
-            (Some(b), Some(p))
-        } else {
-            (None, None)
-        };
-        let progress = progress.or(own_prog.as_ref());
+        let (bar, progress) = with_read_progress(path, progress);
 
         let meta = fs::metadata(path)
             .await
@@ -69,13 +62,7 @@ impl FileTrait for LocalFile {
         content: &str,
         progress: Option<&ProgressFn>,
     ) -> anyhow::Result<()> {
-        let (bar, own_prog) = if progress.is_none() && std::io::stdout().is_terminal() {
-            let (b, p) = progress_for_write(path, content.len() as u64);
-            (Some(b), Some(p))
-        } else {
-            (None, None)
-        };
-        let progress = progress.or(own_prog.as_ref());
+        let (bar, progress) = with_write_progress(path, content.len() as u64, progress);
 
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)

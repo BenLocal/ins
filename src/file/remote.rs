@@ -1,4 +1,3 @@
-use std::io::IsTerminal;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -9,7 +8,7 @@ use russh::client::{self, Config};
 use russh::keys::{load_secret_key, PrivateKeyWithHashAlg, PublicKey};
 use russh_sftp::client::SftpSession;
 
-use super::{progress_for_read, progress_for_write, FileTrait, ProgressFn};
+use super::{with_read_progress, with_write_progress, FileTrait, ProgressFn};
 
 #[derive(Clone, Debug)]
 pub struct RemoteFile {
@@ -125,13 +124,7 @@ impl FileTrait for RemoteFile {
             .ok_or_else(|| anyhow!("non-utf8 remote path {}", path.display()))?
             .to_string();
 
-        let (bar, own_prog) = if progress.is_none() && std::io::stdout().is_terminal() {
-            let (b, p) = progress_for_read(path);
-            (Some(b), Some(p))
-        } else {
-            (None, None)
-        };
-        let progress = progress.or(own_prog.as_ref());
+        let (bar, progress) = with_read_progress(path, progress);
 
         if let Some(ref cb) = progress {
             cb(0, 0);
@@ -172,13 +165,7 @@ impl FileTrait for RemoteFile {
         let data = content.as_bytes().to_vec();
         let data_len = data.len() as u64;
 
-        let (bar, own_prog) = if progress.is_none() && std::io::stdout().is_terminal() {
-            let (b, p) = progress_for_write(path, data_len);
-            (Some(b), Some(p))
-        } else {
-            (None, None)
-        };
-        let progress = progress.or(own_prog.as_ref());
+        let (bar, progress) = with_write_progress(path, data_len, progress);
 
         if let Some(ref cb) = progress {
             cb(0, data_len);

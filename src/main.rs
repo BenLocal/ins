@@ -7,6 +7,8 @@ use crate::cli::{
 
 mod app;
 mod cli;
+mod node;
+mod provider;
 
 #[tokio::main]
 async fn main() {

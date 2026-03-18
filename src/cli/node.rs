@@ -2,10 +2,11 @@ use std::path::PathBuf;
 
 use anyhow::{Context, bail};
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use tokio::fs;
 
 use crate::cli::{CommandContext, CommandTrait};
+use crate::node::list::load_all_nodes;
+use crate::node::types::RemoteNodeRecord;
 
 #[derive(clap::Args, Clone, Debug)]
 /// Manage nodes in the cluster.
@@ -68,15 +69,6 @@ pub struct NodeSetArgs {
 /// List cluster nodes.
 pub struct NodeListArgs {}
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
-struct NodeRecord {
-    name: String,
-    ip: String,
-    port: u16,
-    user: String,
-    password: String,
-}
-
 pub struct NodeCommand;
 
 #[async_trait]
@@ -101,7 +93,7 @@ async fn add_node(nodes_path: &PathBuf, args: NodeAddArgs) -> anyhow::Result<()>
         bail!("node '{}' already exists", args.name);
     }
 
-    nodes.push(NodeRecord {
+    nodes.push(RemoteNodeRecord {
         name: args.name,
         ip: args.ip,
         port: args.port,
@@ -131,36 +123,16 @@ async fn set_node(nodes_path: &PathBuf, args: NodeSetArgs) -> anyhow::Result<()>
 }
 
 async fn list_nodes(nodes_path: &PathBuf) -> anyhow::Result<()> {
-    let nodes = load_nodes(nodes_path).await?;
+    let nodes = load_all_nodes(nodes_path).await?;
     println!("{}", serde_json::to_string_pretty(&nodes)?);
     Ok(())
 }
 
-fn nodes_file(home: &PathBuf) -> PathBuf {
+pub(crate) fn nodes_file(home: &PathBuf) -> PathBuf {
     home.join("nodes.json")
 }
 
-async fn load_nodes(nodes_path: &PathBuf) -> anyhow::Result<Vec<NodeRecord>> {
-    if !fs::try_exists(nodes_path)
-        .await
-        .with_context(|| format!("check nodes file {}", nodes_path.display()))?
-    {
-        return Ok(Vec::new());
-    }
-
-    let content = fs::read_to_string(nodes_path)
-        .await
-        .with_context(|| format!("read nodes file {}", nodes_path.display()))?;
-
-    if content.trim().is_empty() {
-        return Ok(Vec::new());
-    }
-
-    Ok(serde_json::from_str(&content)
-        .with_context(|| format!("parse nodes file {}", nodes_path.display()))?)
-}
-
-async fn save_nodes(nodes_path: &PathBuf, nodes: &[NodeRecord]) -> anyhow::Result<()> {
+async fn save_nodes(nodes_path: &PathBuf, nodes: &[RemoteNodeRecord]) -> anyhow::Result<()> {
     let content = serde_json::to_string_pretty(nodes)?;
     fs::write(nodes_path, format!("{content}\n"))
         .await

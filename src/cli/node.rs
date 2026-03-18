@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use tokio::fs;
 
 use crate::cli::{CommandContext, CommandTrait};
-use crate::node::list::load_all_nodes;
+use crate::node::list::{load_all_nodes, load_remote_nodes};
 use crate::node::types::RemoteNodeRecord;
 
 #[derive(clap::Args, Clone, Debug)]
@@ -87,7 +87,7 @@ impl CommandTrait for NodeCommand {
 }
 
 async fn add_node(nodes_path: &PathBuf, args: NodeAddArgs) -> anyhow::Result<()> {
-    let mut nodes = load_nodes(nodes_path).await?;
+    let mut nodes = load_remote_nodes(nodes_path).await?;
 
     if nodes.iter().any(|node| node.name == args.name) {
         bail!("node '{}' already exists", args.name);
@@ -107,7 +107,7 @@ async fn add_node(nodes_path: &PathBuf, args: NodeAddArgs) -> anyhow::Result<()>
 }
 
 async fn set_node(nodes_path: &PathBuf, args: NodeSetArgs) -> anyhow::Result<()> {
-    let mut nodes = load_nodes(nodes_path).await?;
+    let mut nodes = load_remote_nodes(nodes_path).await?;
     let Some(node) = nodes.iter_mut().find(|node| node.name == args.name) else {
         bail!("node '{}' not found", args.name);
     };

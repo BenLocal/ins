@@ -16,7 +16,9 @@ pub(crate) async fn load_all_nodes(nodes_path: &PathBuf) -> anyhow::Result<Vec<N
     Ok(nodes)
 }
 
-async fn load_remote_nodes(nodes_path: &PathBuf) -> anyhow::Result<Vec<RemoteNodeRecord>> {
+pub(crate) async fn load_remote_nodes(
+    nodes_path: &PathBuf,
+) -> anyhow::Result<Vec<RemoteNodeRecord>> {
     if !fs::try_exists(nodes_path)
         .await
         .with_context(|| format!("check nodes file {}", nodes_path.display()))?

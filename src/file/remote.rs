@@ -1,3 +1,4 @@
+use std::io::IsTerminal;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -8,7 +9,7 @@ use russh::client::{self, Config};
 use russh::keys::{load_secret_key, PrivateKeyWithHashAlg, PublicKey};
 use russh_sftp::client::SftpSession;
 
-use super::FileTrait;
+use super::{progress_for_read, progress_for_write, FileTrait, ProgressFn};
 
 #[derive(Clone, Debug)]
 pub struct RemoteFile {
@@ -118,11 +119,23 @@ impl russh::client::Handler for SftpClientHandler {
 
 #[async_trait]
 impl FileTrait for RemoteFile {
-    async fn read(&self, path: &Path) -> anyhow::Result<String> {
+    async fn read(&self, path: &Path, progress: Option<&ProgressFn>) -> anyhow::Result<String> {
         let path_str = path
             .to_str()
             .ok_or_else(|| anyhow!("non-utf8 remote path {}", path.display()))?
             .to_string();
+
+        let (bar, own_prog) = if progress.is_none() && std::io::stdout().is_terminal() {
+            let (b, p) = progress_for_read(path);
+            (Some(b), Some(p))
+        } else {
+            (None, None)
+        };
+        let progress = progress.or(own_prog.as_ref());
+
+        if let Some(ref cb) = progress {
+            cb(0, 0);
+        }
 
         let content = self
             .with_sftp(|sftp| {
@@ -136,15 +149,40 @@ impl FileTrait for RemoteFile {
             })
             .await?;
 
+        if let Some(ref cb) = progress {
+            cb(content.len() as u64, content.len() as u64);
+        }
+        if let Some(ref b) = bar {
+            b.finish_with_message("Done");
+        }
+
         Ok(content)
     }
 
-    async fn write(&self, path: &Path, content: &str) -> anyhow::Result<()> {
+    async fn write(
+        &self,
+        path: &Path,
+        content: &str,
+        progress: Option<&ProgressFn>,
+    ) -> anyhow::Result<()> {
         let path_str = path
             .to_str()
             .ok_or_else(|| anyhow!("non-utf8 remote path {}", path.display()))?
             .to_string();
         let data = content.as_bytes().to_vec();
+        let data_len = data.len() as u64;
+
+        let (bar, own_prog) = if progress.is_none() && std::io::stdout().is_terminal() {
+            let (b, p) = progress_for_write(path, data_len);
+            (Some(b), Some(p))
+        } else {
+            (None, None)
+        };
+        let progress = progress.or(own_prog.as_ref());
+
+        if let Some(ref cb) = progress {
+            cb(0, data_len);
+        }
 
         self.with_sftp(|sftp| {
             Box::pin(async move {
@@ -158,7 +196,16 @@ impl FileTrait for RemoteFile {
                     .map_err(|e| anyhow!("sftp write {}: {}", path_str, e))
             })
         })
-        .await
+        .await?;
+
+        if let Some(ref cb) = progress {
+            cb(data_len, data_len);
+        }
+        if let Some(ref b) = bar {
+            b.finish_with_message("Done");
+        }
+
+        Ok(())
     }
 }
 

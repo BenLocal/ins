@@ -1,0 +1,32 @@
+# qa.yaml
+
+# Application name
+name: <name>
+# Application description
+description: <description>
+# Before script
+before:
+  shell: bash
+  script: ./before.sh
+# After script
+after:
+  shell: bash
+  script: ./after.sh
+# Values, contains multiple values
+values:
+    # Value name
+  - name: <name>
+    # Value type, string/number/boolean/json
+    type: string
+    # Value description
+    description: <description>
+    # Value options, contains multiple options, can be empty
+    # if options is not empty, value must be one of the options
+    options:
+        # Option name
+      - name: <name>
+        # Option description
+        description: <description>
+        # Option value
+        value: <value>
+    

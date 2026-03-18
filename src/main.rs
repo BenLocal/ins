@@ -45,6 +45,13 @@ fn ensure_home_dir(path: &PathBuf) -> anyhow::Result<PathBuf> {
 }
 
 fn default_home_dir() -> PathBuf {
+    // Prefer local project directory if `.ins/` exists.
+    if std::path::Path::new(".ins").is_dir() {
+        return env::current_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join(".ins");
+    }
+
     env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."))

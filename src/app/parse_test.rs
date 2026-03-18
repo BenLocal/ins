@@ -88,16 +88,14 @@ async fn load_app_record_collects_sibling_files_and_directories() -> anyhow::Res
     let record = load_app_record(&qa_file).await?;
     let files = record.files.expect("files should be populated");
 
-    assert_eq!(files.len(), 3);
+    // `qa.yaml` itself is intentionally excluded from sibling file list.
+    assert_eq!(files.len(), 2);
     assert_eq!(files[0].name, "README.md");
     assert_eq!(files[0].path, child_file.display().to_string());
     assert!(!files[0].is_dir);
-    assert_eq!(files[1].name, "qa.yaml");
-    assert_eq!(files[1].path, qa_file.display().to_string());
-    assert!(!files[1].is_dir);
-    assert_eq!(files[2].name, "scripts");
-    assert_eq!(files[2].path, child_dir.display().to_string());
-    assert!(files[2].is_dir);
+    assert_eq!(files[1].name, "scripts");
+    assert_eq!(files[1].path, child_dir.display().to_string());
+    assert!(files[1].is_dir);
 
     fs::remove_dir_all(&test_dir).await?;
     Ok(())

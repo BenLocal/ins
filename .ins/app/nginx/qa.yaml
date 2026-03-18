@@ -1,0 +1,7 @@
+name: nginx
+description: Nginx server
+values:
+  - name: port
+    type: number
+    description: Port to listen on
+    default: 80

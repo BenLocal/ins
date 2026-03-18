@@ -29,6 +29,7 @@ async fn load_app_files(qa_file: &Path) -> anyhow::Result<Vec<AppFileEntry>> {
         .await
         .with_context(|| format!("read app dir {}", app_dir.display()))?;
     let mut files = Vec::new();
+    let qa_file_name = qa_file.file_name().map(|name| name.to_owned());
 
     while let Some(entry) = entries
         .next_entry()
@@ -36,6 +37,13 @@ async fn load_app_files(qa_file: &Path) -> anyhow::Result<Vec<AppFileEntry>> {
         .with_context(|| format!("iterate app dir {}", app_dir.display()))?
     {
         let path = entry.path();
+        if path == qa_file
+            || qa_file_name
+                .as_ref()
+                .is_some_and(|qa_name| entry.file_name() == *qa_name)
+        {
+            continue;
+        }
         let file_type = entry
             .file_type()
             .await

@@ -3,6 +3,11 @@ name = "ins"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+# Default (debug): link against system `libduckdb` (fast builds).
+# Release (portable): `--features duckdb-bundled` to compile DuckDB from source and bundle it.
+duckdb-bundled = ["duckdb/bundled"]
+
 [dependencies]
 tokio = { version = "1.38.0", features = ["full"] }
 hyper = "1.5.1"
@@ -17,4 +22,4 @@ inquire = "0.9.4"
 async-trait = "0.1.89"
 serde_yaml = "0.9.33"
 minijinja = "2.18.0"
-duckdb = { version = "1.10500.0", features = ["bundled"] }
+duckdb = "1.4.4"

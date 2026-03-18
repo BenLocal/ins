@@ -14,7 +14,13 @@
                     "--bin=ins"
                 ]
             },
-            "args": []
+            "args": [
+                "deploy",
+                "--provider=docker-compose",
+                "--node=local",
+                "--workspace=${workspaceFolder}/workspace",
+                "nginx",
+            ]
         },
         {
             "name": "Debug unit tests in executable 'ins'",

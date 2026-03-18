@@ -30,7 +30,10 @@ async fn load_app_record_parses_template_yaml() -> anyhow::Result<()> {
     assert_eq!(record.values.len(), 1);
     assert_eq!(record.values[0].name, "<name>");
     assert_eq!(record.values[0].value_type, "string");
-    assert_eq!(record.values[0].description.as_deref(), Some("<description>"));
+    assert_eq!(
+        record.values[0].description.as_deref(),
+        Some("<description>")
+    );
     assert_eq!(record.values[0].options.len(), 1);
     assert_eq!(record.values[0].options[0].name, "<name>");
     assert_eq!(
@@ -105,5 +108,5 @@ fn unique_test_dir(name: &str) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .expect("system time before unix epoch")
         .as_nanos();
-    env::temp_dir().join(format!("docker-ins-{name}-{}-{nanos}", std::process::id()))
+    env::temp_dir().join(format!("ins-{name}-{}-{nanos}", std::process::id()))
 }

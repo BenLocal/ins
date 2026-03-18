@@ -5,25 +5,25 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug executable 'docker-ins'",
+            "name": "Debug executable 'ins'",
             "type": "lldb",
             "request": "launch",
             "cargo": {
                 "args": [
                     "run",
-                    "--bin=docker-ins"
+                    "--bin=ins"
                 ]
             },
             "args": []
         },
         {
-            "name": "Debug unit tests in executable 'docker-ins'",
+            "name": "Debug unit tests in executable 'ins'",
             "type": "lldb",
             "request": "launch",
             "cargo": {
                 "args": [
                     "test",
-                    "--bin=docker-ins"
+                    "--bin=ins"
                 ]
             }
         }

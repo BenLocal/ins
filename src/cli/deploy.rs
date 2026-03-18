@@ -678,6 +678,6 @@ values: []
             .duration_since(UNIX_EPOCH)
             .expect("system time before unix epoch")
             .as_nanos();
-        env::temp_dir().join(format!("docker-ins-{name}-{}-{nanos}", std::process::id()))
+        env::temp_dir().join(format!("ins-{name}-{}-{nanos}", std::process::id()))
     }
 }

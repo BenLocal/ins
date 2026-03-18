@@ -1,5 +1,5 @@
 [package]
-name = "docker-ins"
+name = "ins"
 version = "0.1.0"
 edition = "2024"
 
@@ -17,3 +17,4 @@ inquire = "0.9.4"
 async-trait = "0.1.89"
 serde_yaml = "0.9.33"
 minijinja = "2.18.0"
+duckdb = { version = "1.10500.0", features = ["bundled"] }

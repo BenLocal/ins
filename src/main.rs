@@ -48,7 +48,7 @@ fn default_home_dir() -> PathBuf {
     env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".docker-ins")
+        .join(".ins")
 }
 
 #[derive(Parser)]
@@ -56,7 +56,7 @@ fn default_home_dir() -> PathBuf {
 #[command(bin_name = "ins")]
 /// Docker deployment helper.
 struct InsCli {
-    /// Home directory for docker-ins data.
+    /// Home directory for ins data.
     #[arg(long, global = true, default_value_os_t = default_home_dir())]
     home: PathBuf,
 

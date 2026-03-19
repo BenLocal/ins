@@ -1,4 +1,5 @@
 pub mod app;
+pub mod check;
 pub mod deploy;
 pub mod node;
 

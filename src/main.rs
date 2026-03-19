@@ -2,7 +2,8 @@ use clap::{CommandFactory, Parser};
 use std::{env, fs, path::PathBuf};
 
 use crate::cli::{
-    CommandContext, CommandTrait, app::AppCommand, deploy::DeployCommand, node::NodeCommand,
+    CommandContext, CommandTrait, app::AppCommand, check::CheckCommand, deploy::DeployCommand,
+    node::NodeCommand,
 };
 
 mod app;
@@ -26,6 +27,7 @@ async fn main() {
 
     let res = match cli.command {
         Some(Command::Deploy(args)) => DeployCommand::run(args, CommandContext { home }).await,
+        Some(Command::Check(args)) => CheckCommand::run(args, CommandContext { home }).await,
         Some(Command::Node(args)) => NodeCommand::run(args, CommandContext { home }).await,
         Some(Command::App(args)) => AppCommand::run(args, CommandContext { home }).await,
         None => {
@@ -77,6 +79,8 @@ struct InsCli {
 enum Command {
     /// Deploy a container image.
     Deploy(cli::deploy::DeployArgs),
+    /// Prepare and validate deployment inputs without running the provider.
+    Check(cli::check::CheckArgs),
     /// Manage nodes in the cluster.
     Node(cli::node::NodeArgs),
     /// Manage applications in the cluster.

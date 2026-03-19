@@ -38,6 +38,16 @@ pub struct DeployArgs {
     pub apps: Option<Vec<String>>,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct PreparedDeployment {
+    pub provider: Option<String>,
+    pub node: NodeRecord,
+    pub app_names: Vec<String>,
+    pub app_home: PathBuf,
+    pub workspace: PathBuf,
+    pub targets: Vec<DeploymentTarget>,
+}
+
 pub struct DeployCommand;
 
 #[async_trait]
@@ -45,48 +55,97 @@ impl CommandTrait for DeployCommand {
     type Args = DeployArgs;
 
     async fn run(args: DeployArgs, ctx: CommandContext) -> anyhow::Result<()> {
-        let provider = match args.provider.as_str() {
-            "docker-compose" => DockerComposeProvider,
-            _ => return Err(anyhow!("unsupported provider: {}", &args.provider)),
-        };
+        ensure_supported_provider(&args.provider)?;
+        let provider = DockerComposeProvider;
+        let prepared = prepare_deployment(
+            &ctx.home,
+            Some(args.provider.clone()),
+            args.workspace,
+            args.node,
+            args.apps,
+        )
+        .await?;
 
-        let nodes = load_all_nodes(&nodes_file(&ctx.home)).await?;
-        let node = select_node(&nodes, args.node.as_deref())?;
-        let app_home = ctx.home.join("app");
-        let app_names = resolve_apps(args.apps, &app_home).await?;
-        let apps = load_app_records_by_names(&app_names, &app_home).await?;
-        let targets = build_deployment_targets(apps, &ctx.home, &node, &args.workspace).await?;
-
-        println!("Starting deployment...");
-        println!("Provider Name: {}", &args.provider);
-        println!("Node Name: {}", node_name(&node));
-        println!("Apps: {}", &app_names.join(", "));
-        println!("Workspace: {}", args.workspace.display());
-        println!("Deployment Targets:");
-        for target in &targets {
-            println!(
-                "  {} -> service {} -> {}",
-                target.app.name,
-                target.service,
-                args.workspace.join(&target.service).display()
-            );
-        }
-
-        println!("Copying apps to workspace...");
-        copy_apps_to_workspace(&ctx.home, &targets, &app_home, &args.workspace, &node).await?;
+        print_prepared_deployment("Starting deployment...", &prepared);
+        copy_prepared_apps_to_workspace(&ctx.home, &prepared).await?;
 
         println!("Running provider...");
         provider
             .run(ProviderContext::new(
-                args.provider,
-                node,
-                targets,
-                args.workspace,
+                Some(args.provider),
+                prepared.node,
+                prepared.targets,
+                prepared.workspace,
             ))
             .await?;
 
         Ok(())
     }
+}
+
+pub(crate) fn ensure_supported_provider(provider: &str) -> anyhow::Result<()> {
+    match provider {
+        "docker-compose" => Ok(()),
+        _ => Err(anyhow!("unsupported provider: {}", provider)),
+    }
+}
+
+pub(crate) async fn prepare_deployment(
+    home: &Path,
+    provider: Option<String>,
+    workspace: PathBuf,
+    requested_node: Option<String>,
+    requested_apps: Option<Vec<String>>,
+) -> anyhow::Result<PreparedDeployment> {
+    let nodes = load_all_nodes(&nodes_file(&home.to_path_buf())).await?;
+    let node = select_node(&nodes, requested_node.as_deref())?;
+    let app_home = home.join("app");
+    let app_names = resolve_apps(requested_apps, &app_home).await?;
+    let apps = load_app_records_by_names(&app_names, &app_home).await?;
+    let targets = build_deployment_targets(apps, home, &node, &workspace).await?;
+
+    Ok(PreparedDeployment {
+        provider,
+        node,
+        app_names,
+        app_home,
+        workspace,
+        targets,
+    })
+}
+
+pub(crate) fn print_prepared_deployment(title: &str, prepared: &PreparedDeployment) {
+    println!("{}", title);
+    if let Some(provider) = &prepared.provider {
+        println!("Provider Name: {}", provider);
+    }
+    println!("Node Name: {}", node_name(&prepared.node));
+    println!("Apps: {}", &prepared.app_names.join(", "));
+    println!("Workspace: {}", prepared.workspace.display());
+    println!("Deployment Targets:");
+    for target in &prepared.targets {
+        println!(
+            "  {} -> service {} -> {}",
+            target.app.name,
+            target.service,
+            prepared.workspace.join(&target.service).display()
+        );
+    }
+}
+
+pub(crate) async fn copy_prepared_apps_to_workspace(
+    home: &Path,
+    prepared: &PreparedDeployment,
+) -> anyhow::Result<()> {
+    println!("Copying apps to workspace...");
+    copy_apps_to_workspace(
+        home,
+        &prepared.targets,
+        &prepared.app_home,
+        &prepared.workspace,
+        &prepared.node,
+    )
+    .await
 }
 
 fn select_node(nodes: &[NodeRecord], requested: Option<&str>) -> anyhow::Result<NodeRecord> {
@@ -391,9 +450,11 @@ fn resolve_service_name(
                 format!("Use app name ({})", app.name),
                 "Enter service name manually".to_string(),
             ];
-            let answer =
-                Select::new(&format!("Service name for app '{}'", app.name), options.clone())
-                    .prompt()?;
+            let answer = Select::new(
+                &format!("Service name for app '{}'", app.name),
+                options.clone(),
+            )
+            .prompt()?;
             if answer == options[0] {
                 return Ok(preset.service.clone());
             }
@@ -426,7 +487,12 @@ fn resolve_app_values(
     app_record
         .values
         .iter()
-        .map(|value| resolve_app_value(value, preset.and_then(|preset| preset.app_values.get(&value.name))))
+        .map(|value| {
+            resolve_app_value(
+                value,
+                preset.and_then(|preset| preset.app_values.get(&value.name)),
+            )
+        })
         .collect()
 }
 

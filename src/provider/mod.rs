@@ -19,7 +19,7 @@ impl DeploymentTarget {
 
 #[derive(Clone, Debug)]
 pub struct ProviderContext {
-    pub provider: String,
+    pub provider: Option<String>,
     pub node: NodeRecord,
     pub targets: Vec<DeploymentTarget>,
     pub workspace: PathBuf,
@@ -27,7 +27,7 @@ pub struct ProviderContext {
 
 impl ProviderContext {
     pub fn new(
-        provider: String,
+        provider: Option<String>,
         node: NodeRecord,
         targets: Vec<DeploymentTarget>,
         workspace: PathBuf,
@@ -43,5 +43,6 @@ impl ProviderContext {
 
 #[async_trait]
 pub trait ProviderTrait {
+    async fn validate(&self, ctx: ProviderContext) -> anyhow::Result<()>;
     async fn run(&self, ctx: ProviderContext) -> anyhow::Result<()>;
 }

@@ -1,6 +1,7 @@
 use anyhow::anyhow;
 use async_trait::async_trait;
-use inquire::{Confirm, CustomType, MultiSelect, Select, Text};
+use chrono::{DateTime, Utc};
+use inquire::{Confirm, MultiSelect, Select, Text};
 use minijinja::{Environment, UndefinedBehavior, context};
 use serde_json::{Map, Value};
 use tokio::fs;
@@ -351,7 +352,9 @@ fn should_reuse_stored_settings(
 
     Confirm::new(&format!(
         "Reuse latest settings for app '{}' (service '{}', saved at {})?",
-        app.name, preset.service, preset.created_at_ms
+        app.name,
+        preset.service,
+        format_timestamp_ms(preset.created_at_ms)
     ))
     .with_default(true)
     .prompt()
@@ -525,11 +528,10 @@ fn prompt_value_by_type(value: &AppValue) -> anyhow::Result<Value> {
                 .with_default(false)
                 .prompt()?,
         )),
-        "number" => Ok(serde_json::Number::from_f64(
-            CustomType::<f64>::new(&value_prompt(value)).prompt()?,
-        )
-        .map(Value::Number)
-        .ok_or_else(|| anyhow!("invalid number for '{}'", value.name))?),
+        "number" => {
+            let raw = Text::new(&value_prompt(value)).prompt()?;
+            parse_number_value(&raw, &value.name)
+        }
         "json" => {
             let raw = Text::new(&format!("{} (JSON)", value_prompt(value))).prompt()?;
             serde_json::from_str(&raw)
@@ -544,6 +546,33 @@ fn value_prompt(value: &AppValue) -> String {
         Some(description) => format!("{} ({})", value.name, description),
         None => format!("Enter value for {}", value.name),
     }
+}
+
+fn parse_number_value(raw: &str, value_name: &str) -> anyhow::Result<Value> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(anyhow!("invalid number for '{}': empty input", value_name));
+    }
+
+    if let Ok(number) = trimmed.parse::<i64>() {
+        return Ok(Value::Number(number.into()));
+    }
+    if let Ok(number) = trimmed.parse::<u64>() {
+        return Ok(Value::Number(number.into()));
+    }
+    if let Ok(number) = trimmed.parse::<f64>() {
+        return serde_json::Number::from_f64(number)
+            .map(Value::Number)
+            .ok_or_else(|| anyhow!("invalid number for '{}'", value_name));
+    }
+
+    Err(anyhow!("invalid number for '{}': {}", value_name, raw))
+}
+
+fn format_timestamp_ms(timestamp_ms: i64) -> String {
+    DateTime::<Utc>::from_timestamp_millis(timestamp_ms)
+        .map(|time| time.format("%Y-%m-%d %H:%M:%S UTC").to_string())
+        .unwrap_or_else(|| timestamp_ms.to_string())
 }
 
 async fn copy_file_to_workspace(

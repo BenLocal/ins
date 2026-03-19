@@ -1,6 +1,9 @@
 use anyhow::{Context, anyhow};
 use async_trait::async_trait;
+use tokio::process::Child;
 use tokio::process::Command;
+use tokio::signal;
+use tokio::time::{Duration, sleep};
 
 use crate::node::types::NodeRecord;
 use crate::provider::{ProviderContext, ProviderTrait};
@@ -45,6 +48,7 @@ impl ProviderTrait for DockerComposeProvider {
                         .arg("up")
                         .arg("-d")
                         .current_dir(&app_dir)
+                        .kill_on_drop(true)
                         .status()
                         .await
                         .with_context(|| {

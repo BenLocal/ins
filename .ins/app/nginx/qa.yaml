@@ -5,3 +5,7 @@ values:
     type: number
     description: Port to listen on
     default: 80
+  - name: outbound_port
+    type: number
+    description: Outbound port to listen on
+    default: 80

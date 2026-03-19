@@ -1,6 +1,7 @@
 use super::{
     apply_stored_values, build_deployment_target, build_template_values, copy_apps_to_workspace,
-    is_template_file, load_available_apps, rendered_template_name, resolve_apps, select_node,
+    is_template_file, load_available_apps, parse_number_value, rendered_template_name,
+    resolve_apps, select_node,
 };
 use crate::app::types::{AppRecord, AppValue, AppValueOption, ScriptHook};
 use crate::node::types::{NodeRecord, RemoteNodeRecord};
@@ -357,6 +358,12 @@ fn apply_stored_values_overrides_matching_app_values() {
     apply_stored_values(&mut app, &preset);
 
     assert_eq!(app.values[0].value, Some(json!("nginx:1.27")));
+}
+
+#[test]
+fn parse_number_value_keeps_integer_without_decimal_suffix() {
+    assert_eq!(parse_number_value("70", "port").unwrap(), json!(70));
+    assert_eq!(parse_number_value("70.5", "port").unwrap(), json!(70.5));
 }
 
 fn unique_test_dir(name: &str) -> PathBuf {

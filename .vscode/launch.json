@@ -11,7 +11,9 @@
             "cargo": {
                 "args": [
                     "run",
-                    "--bin=ins"
+                    "--bin=ins",
+                    "--features",
+                    "duckdb-bundled"
                 ]
             },
             "args": [

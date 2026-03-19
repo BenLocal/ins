@@ -13,7 +13,10 @@ pub type ProgressFn = Arc<dyn Fn(u64, u64) + Send + Sync>;
 
 /// Resolves progress for read: if caller passed None and stdout is TTY, creates a bar and callback.
 /// Returns (bar to finish on done, progress to use). Caller must call `bar.finish_with_message("Done")` when done.
-pub fn with_read_progress(path: &Path, progress: Option<&ProgressFn>) -> (Option<ProgressBar>, Option<ProgressFn>) {
+pub fn with_read_progress(
+    path: &Path,
+    progress: Option<&ProgressFn>,
+) -> (Option<ProgressBar>, Option<ProgressFn>) {
     if let Some(p) = progress {
         return (None, Some(p.clone()));
     }
@@ -44,7 +47,11 @@ pub fn with_write_progress(
 fn progress_for_read(path: &Path) -> (ProgressBar, ProgressFn) {
     let msg = path.display().to_string();
     let bar = ProgressBar::new_spinner()
-        .with_style(ProgressStyle::default_spinner().template("{spinner:.dim} {msg}").unwrap())
+        .with_style(
+            ProgressStyle::default_spinner()
+                .template("{spinner:.dim} {msg}")
+                .unwrap(),
+        )
         .with_message(msg);
     let bar_clone = bar.clone();
     let cb: ProgressFn = Arc::new(move |current, total| {

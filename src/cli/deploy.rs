@@ -8,13 +8,16 @@ use tokio::fs;
 use crate::app::parse::load_app_record;
 use crate::app::types::{AppRecord, AppValue};
 use crate::cli::{CommandContext, CommandTrait, node::nodes_file};
+use crate::file::FileTrait;
 use crate::file::local::LocalFile;
 use crate::file::remote::RemoteFile;
-use crate::file::FileTrait;
 use crate::node::list::load_all_nodes;
 use crate::node::types::NodeRecord;
 use crate::provider::docker_compose::DockerComposeProvider;
 use crate::provider::{DeploymentTarget, ProviderContext, ProviderTrait as _};
+use crate::store::duck::{
+    StoredDeploymentRecord, load_latest_deployment_record, save_deployment_record,
+};
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 
@@ -51,7 +54,7 @@ impl CommandTrait for DeployCommand {
         let app_home = ctx.home.join("app");
         let app_names = resolve_apps(args.apps, &app_home).await?;
         let apps = load_app_records_by_names(&app_names, &app_home).await?;
-        let targets = build_deployment_targets(apps)?;
+        let targets = build_deployment_targets(apps, &ctx.home, &node, &args.workspace).await?;
 
         println!("Starting deployment...");
         println!("Provider Name: {}", &args.provider);
@@ -69,7 +72,7 @@ impl CommandTrait for DeployCommand {
         }
 
         println!("Copying apps to workspace...");
-        copy_apps_to_workspace(&targets, &app_home, &args.workspace, &node).await?;
+        copy_apps_to_workspace(&ctx.home, &targets, &app_home, &args.workspace, &node).await?;
 
         println!("Running provider...");
         provider
@@ -149,6 +152,7 @@ async fn load_app_records_by_names(
 }
 
 async fn copy_apps_to_workspace(
+    home: &Path,
     targets: &[DeploymentTarget],
     app_home: &Path,
     workspace: &Path,
@@ -159,7 +163,6 @@ async fn copy_apps_to_workspace(
     for target in targets {
         let source_dir = app_home.join(&target.app.name);
         let qa_file = app_qa_file(&source_dir);
-        let app_record = load_app_record(&qa_file).await?;
         let target_dir = workspace.join(&target.service);
         println!(
             "\r  Copying app '{}' into service '{}' at {}",
@@ -167,7 +170,12 @@ async fn copy_apps_to_workspace(
             target.service,
             target_dir.display()
         );
-        copy_dir_recursive(&source_dir, &target_dir, &app_record, node).await?;
+        copy_dir_recursive(&source_dir, &target_dir, &target.app, node).await?;
+
+        let qa_yaml = fs::read_to_string(&qa_file)
+            .await
+            .map_err(|e| anyhow!("read qa file {}: {}", qa_file.display(), e))?;
+        save_deployment_record(home, node, workspace, target, &qa_yaml).await?;
     }
 
     Ok(())
@@ -294,19 +302,75 @@ fn build_template_values(app_record: &AppRecord) -> anyhow::Result<Value> {
     }))
 }
 
-fn build_deployment_targets(apps: Vec<AppRecord>) -> anyhow::Result<Vec<DeploymentTarget>> {
-    apps.into_iter()
-        .map(|app| {
-            let default_service = app.name.clone();
-            let service = resolve_service_name(&app)?;
-            let service = if service.trim().is_empty() {
-                default_service
-            } else {
-                service
-            };
-            Ok(DeploymentTarget::new(app, service))
-        })
-        .collect()
+async fn build_deployment_targets(
+    apps: Vec<AppRecord>,
+    home: &Path,
+    node: &NodeRecord,
+    workspace: &Path,
+) -> anyhow::Result<Vec<DeploymentTarget>> {
+    let mut targets = Vec::with_capacity(apps.len());
+
+    for app in apps {
+        let preset = load_latest_deployment_record(home, node, workspace, &app.name).await?;
+        let target = build_deployment_target(app, preset.as_ref())?;
+        targets.push(target);
+    }
+
+    Ok(targets)
+}
+
+fn build_deployment_target(
+    mut app: AppRecord,
+    preset: Option<&StoredDeploymentRecord>,
+) -> anyhow::Result<DeploymentTarget> {
+    let service = if should_reuse_stored_settings(&app, preset)? {
+        apply_stored_values(&mut app, preset.expect("preset exists when confirmed"));
+        preset
+            .expect("preset exists when confirmed")
+            .service
+            .clone()
+    } else {
+        resolve_service_name(&app)?
+    };
+
+    materialize_app_values(&mut app)?;
+    Ok(DeploymentTarget::new(app, service))
+}
+
+fn should_reuse_stored_settings(
+    app: &AppRecord,
+    preset: Option<&StoredDeploymentRecord>,
+) -> anyhow::Result<bool> {
+    let Some(preset) = preset else {
+        return Ok(false);
+    };
+    if !std::io::stdin().is_terminal() {
+        return Ok(false);
+    }
+
+    Confirm::new(&format!(
+        "Reuse latest settings for app '{}' (service '{}', saved at {})?",
+        app.name, preset.service, preset.created_at_ms
+    ))
+    .with_default(true)
+    .prompt()
+    .map_err(Into::into)
+}
+
+fn apply_stored_values(app: &mut AppRecord, preset: &StoredDeploymentRecord) {
+    for value in &mut app.values {
+        if let Some(stored) = preset.app_values.get(&value.name) {
+            value.value = Some(stored.clone());
+        }
+    }
+}
+
+fn materialize_app_values(app: &mut AppRecord) -> anyhow::Result<()> {
+    let resolved = resolve_app_values(app)?;
+    for (value, resolved_value) in app.values.iter_mut().zip(resolved) {
+        value.value = Some(resolved_value);
+    }
+    Ok(())
 }
 
 fn resolve_service_name(app: &AppRecord) -> anyhow::Result<String> {
@@ -336,12 +400,43 @@ fn resolve_app_value(value: &AppValue) -> anyhow::Result<Value> {
     }
 
     if let Some(default) = value.default.clone() {
-        return Ok(default);
+        if !std::io::stdin().is_terminal() {
+            return Ok(default);
+        }
+
+        let use_default = Confirm::new(&format!(
+            "Use default value for '{}'{}?",
+            value.name,
+            match serde_json::to_string(&default) {
+                Ok(rendered) => format!(" ({rendered})"),
+                Err(_) => String::new(),
+            }
+        ))
+        .with_default(true)
+        .prompt()?;
+
+        if use_default {
+            return Ok(default);
+        }
     }
 
     if !value.options.is_empty() {
-        if value.options.len() == 1 || !std::io::stdin().is_terminal() {
+        if !std::io::stdin().is_terminal() {
             return Ok(value.options[0].value.clone().unwrap_or(Value::Null));
+        }
+
+        if value.options.len() == 1 {
+            let option = &value.options[0];
+            let use_option = Confirm::new(&format!(
+                "Use only available option for '{}' ({})?",
+                value.name, option.name
+            ))
+            .with_default(true)
+            .prompt()?;
+
+            if use_option {
+                return Ok(option.value.clone().unwrap_or(Value::Null));
+            }
         }
 
         let labels: Vec<String> = value
@@ -412,9 +507,10 @@ async fn copy_file_to_workspace(
             source_path.display(),
             target_path.display()
         );
-        let source = source_file.read(source_path, None).await.map_err(|e| {
-            anyhow!("read template {}: {}", source_path.display(), e)
-        })?;
+        let source = source_file
+            .read(source_path, None)
+            .await
+            .map_err(|e| anyhow!("read template {}: {}", source_path.display(), e))?;
         let rendered = render_template(&source, template_values)?;
         target_file
             .write(&target_path, &rendered, None)
@@ -429,13 +525,21 @@ async fn copy_file_to_workspace(
         source_path.display(),
         target_path.display()
     );
-    let source_bytes = source_file.read_bytes(source_path, None).await.map_err(|e| {
-        anyhow!("read source file {}: {}", source_path.display(), e)
-    })?;
+    let source_bytes = source_file
+        .read_bytes(source_path, None)
+        .await
+        .map_err(|e| anyhow!("read source file {}: {}", source_path.display(), e))?;
     target_file
         .write_bytes(&target_path, &source_bytes, None)
         .await
-        .map_err(|e| anyhow!("copy {} to {}: {}", source_path.display(), target_path.display(), e))?;
+        .map_err(|e| {
+            anyhow!(
+                "copy {} to {}: {}",
+                source_path.display(),
+                target_path.display(),
+                e
+            )
+        })?;
     Ok(())
 }
 

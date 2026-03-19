@@ -5,10 +5,10 @@ use std::time::Duration;
 use anyhow::anyhow;
 use async_trait::async_trait;
 use russh::client::{self, Config};
-use russh::keys::{load_secret_key, PrivateKeyWithHashAlg, PublicKey};
+use russh::keys::{PrivateKeyWithHashAlg, PublicKey, load_secret_key};
 use russh_sftp::client::SftpSession;
 
-use super::{with_read_progress, with_write_progress, FileTrait, ProgressFn};
+use super::{FileTrait, ProgressFn, with_read_progress, with_write_progress};
 
 #[derive(Clone, Debug)]
 pub struct RemoteFile {
@@ -40,7 +40,11 @@ impl RemoteFile {
     /// Connect, authenticate, open SFTP subsystem and run the given closure with SftpSession.
     async fn with_sftp<F, T>(&self, f: F) -> anyhow::Result<T>
     where
-        F: FnOnce(SftpSession) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<T>> + Send>> + Send,
+        F: FnOnce(
+                SftpSession,
+            )
+                -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<T>> + Send>>
+            + Send,
         T: Send,
     {
         let addrs = (self.host.as_str(), self.port);
@@ -63,7 +67,12 @@ impl RemoteFile {
             };
             let key_pair = load_secret_key(key_path, passphrase)
                 .map_err(|e| anyhow!("load key {}: {}", key_path, e))?;
-            let hash_alg = handle.best_supported_rsa_hash().await.ok().flatten().flatten();
+            let hash_alg = handle
+                .best_supported_rsa_hash()
+                .await
+                .ok()
+                .flatten()
+                .flatten();
             let auth = handle
                 .authenticate_publickey(
                     self.user.clone(),
@@ -158,8 +167,7 @@ impl FileTrait for RemoteFile {
         let content = self
             .with_sftp(|sftp| {
                 Box::pin(async move {
-                    sftp
-                        .read(&path_str)
+                    sftp.read(&path_str)
                         .await
                         .map_err(|e| anyhow!("sftp read {}: {}", path_str, e))
                 })
@@ -263,7 +271,11 @@ mod tests {
         let read_err = remote.read(&invalid, None).await.unwrap_err().to_string();
         assert!(read_err.contains("non-utf8 remote path"));
 
-        let write_err = remote.write(&invalid, "data", None).await.unwrap_err().to_string();
+        let write_err = remote
+            .write(&invalid, "data", None)
+            .await
+            .unwrap_err()
+            .to_string();
         assert!(write_err.contains("non-utf8 remote path"));
     }
 }

@@ -1,12 +1,14 @@
 use super::{
-    build_deployment_targets, build_template_values, copy_apps_to_workspace, is_template_file,
-    load_available_apps, rendered_template_name, resolve_apps, select_node,
+    apply_stored_values, build_deployment_target, build_template_values, copy_apps_to_workspace,
+    is_template_file, load_available_apps, rendered_template_name, resolve_apps, select_node,
 };
 use crate::app::types::{AppRecord, AppValue, AppValueOption, ScriptHook};
 use crate::node::types::{NodeRecord, RemoteNodeRecord};
 use crate::provider::DeploymentTarget;
+use crate::store::duck::StoredDeploymentRecord;
 use serde_json::json;
 use std::{
+    collections::HashMap,
     env,
     path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
@@ -99,6 +101,7 @@ async fn load_available_apps_reads_apps_from_qa_files() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn copy_apps_to_workspace_copies_app_files() -> anyhow::Result<()> {
+    let home = unique_test_dir("deploy-copy-home");
     let app_home = unique_test_dir("deploy-copy-app-home");
     let workspace = unique_test_dir("deploy-copy-workspace");
     let alpha_dir = app_home.join("alpha");
@@ -114,11 +117,12 @@ async fn copy_apps_to_workspace_copies_app_files() -> anyhow::Result<()> {
     fs::write(scripts_dir.join("run.sh"), "#!/bin/bash").await?;
 
     let targets = vec![DeploymentTarget::new(app_record("alpha"), "alpha".into())];
-    copy_apps_to_workspace(&targets, &app_home, &workspace, &NodeRecord::Local()).await?;
+    copy_apps_to_workspace(&home, &targets, &app_home, &workspace, &NodeRecord::Local()).await?;
     assert!(fs::try_exists(workspace.join("alpha").join("qa.yaml")).await?);
     assert!(fs::try_exists(workspace.join("alpha").join("README.md")).await?);
     assert!(fs::try_exists(workspace.join("alpha").join("scripts").join("run.sh")).await?);
 
+    fs::remove_dir_all(&home).await?;
     fs::remove_dir_all(&app_home).await?;
     fs::remove_dir_all(&workspace).await?;
     Ok(())
@@ -126,6 +130,7 @@ async fn copy_apps_to_workspace_copies_app_files() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn copy_apps_to_workspace_preserves_binary_files_for_local_node() -> anyhow::Result<()> {
+    let home = unique_test_dir("deploy-copy-binary-store-home");
     let app_home = unique_test_dir("deploy-copy-binary-home");
     let workspace = unique_test_dir("deploy-copy-binary-workspace");
     let alpha_dir = app_home.join("alpha");
@@ -139,12 +144,16 @@ async fn copy_apps_to_workspace_preserves_binary_files_for_local_node() -> anyho
     .await?;
     fs::write(alpha_dir.join("blob.bin"), &binary).await?;
 
-    let targets = vec![DeploymentTarget::new(app_record("alpha"), "frontend".into())];
-    copy_apps_to_workspace(&targets, &app_home, &workspace, &NodeRecord::Local()).await?;
+    let targets = vec![DeploymentTarget::new(
+        app_record("alpha"),
+        "frontend".into(),
+    )];
+    copy_apps_to_workspace(&home, &targets, &app_home, &workspace, &NodeRecord::Local()).await?;
 
     let copied = fs::read(workspace.join("frontend").join("blob.bin")).await?;
     assert_eq!(copied, binary);
 
+    fs::remove_dir_all(&home).await?;
     fs::remove_dir_all(&app_home).await?;
     fs::remove_dir_all(&workspace).await?;
     Ok(())
@@ -152,6 +161,7 @@ async fn copy_apps_to_workspace_preserves_binary_files_for_local_node() -> anyho
 
 #[tokio::test]
 async fn copy_apps_to_workspace_renders_template_files() -> anyhow::Result<()> {
+    let home = unique_test_dir("deploy-render-store-home");
     let app_home = unique_test_dir("deploy-render-app-home");
     let workspace = unique_test_dir("deploy-render-workspace");
     let alpha_dir = app_home.join("alpha");
@@ -182,12 +192,30 @@ values:
     )
     .await?;
 
-    let targets = vec![DeploymentTarget::new(app_record("alpha"), "alpha".into())];
-    copy_apps_to_workspace(&targets, &app_home, &workspace, &NodeRecord::Local()).await?;
+    let targets = vec![DeploymentTarget::new(
+        AppRecord {
+            name: "alpha".into(),
+            description: None,
+            before: ScriptHook::default(),
+            after: ScriptHook::default(),
+            files: None,
+            values: vec![AppValue {
+                name: "image".into(),
+                value_type: "string".into(),
+                description: None,
+                value: Some(json!("nginx:latest")),
+                default: None,
+                options: vec![],
+            }],
+        },
+        "alpha".into(),
+    )];
+    copy_apps_to_workspace(&home, &targets, &app_home, &workspace, &NodeRecord::Local()).await?;
 
     let rendered = fs::read_to_string(workspace.join("alpha").join("docker-compose.yml")).await?;
     assert_eq!(rendered, "name=alpha\nimage=nginx:latest");
 
+    fs::remove_dir_all(&home).await?;
     fs::remove_dir_all(&app_home).await?;
     fs::remove_dir_all(&workspace).await?;
     Ok(())
@@ -195,6 +223,7 @@ values:
 
 #[tokio::test]
 async fn copy_apps_to_workspace_allows_missing_template_values() -> anyhow::Result<()> {
+    let home = unique_test_dir("deploy-render-missing-store-home");
     let app_home = unique_test_dir("deploy-render-missing-home");
     let workspace = unique_test_dir("deploy-render-missing-workspace");
     let alpha_dir = app_home.join("alpha");
@@ -219,11 +248,12 @@ values: []
     .await?;
 
     let targets = vec![DeploymentTarget::new(app_record("alpha"), "alpha".into())];
-    copy_apps_to_workspace(&targets, &app_home, &workspace, &NodeRecord::Local()).await?;
+    copy_apps_to_workspace(&home, &targets, &app_home, &workspace, &NodeRecord::Local()).await?;
 
     let rendered = fs::read_to_string(workspace.join("alpha").join("app.conf")).await?;
     assert_eq!(rendered, "name=alpha\nmissing=");
 
+    fs::remove_dir_all(&home).await?;
     fs::remove_dir_all(&app_home).await?;
     fs::remove_dir_all(&workspace).await?;
     Ok(())
@@ -293,32 +323,40 @@ fn build_template_values_prefers_value_then_default_then_option() {
 }
 
 #[test]
-fn build_deployment_targets_defaults_service_to_app_name() {
-    let targets = build_deployment_targets(vec![
-        AppRecord {
-            name: "alpha".into(),
-            description: None,
-            before: ScriptHook::default(),
-            after: ScriptHook::default(),
-            files: None,
-            values: vec![],
-        },
-        AppRecord {
-            name: "beta".into(),
-            description: None,
-            before: ScriptHook::default(),
-            after: ScriptHook::default(),
-            files: None,
-            values: vec![],
-        },
-    ])
-    .expect("deployment targets");
+fn build_deployment_target_defaults_service_to_app_name() {
+    let target = build_deployment_target(app_record("alpha"), None).expect("deployment target");
 
-    assert_eq!(targets.len(), 2);
-    assert_eq!(targets[0].app.name, "alpha");
-    assert_eq!(targets[0].service, "alpha");
-    assert_eq!(targets[1].app.name, "beta");
-    assert_eq!(targets[1].service, "beta");
+    assert_eq!(target.app.name, "alpha");
+    assert_eq!(target.service, "alpha");
+}
+
+#[test]
+fn apply_stored_values_overrides_matching_app_values() {
+    let mut app = AppRecord {
+        name: "alpha".into(),
+        description: None,
+        before: ScriptHook::default(),
+        after: ScriptHook::default(),
+        files: None,
+        values: vec![AppValue {
+            name: "image".into(),
+            value_type: "string".into(),
+            description: None,
+            value: None,
+            default: Some(json!("nginx:latest")),
+            options: vec![],
+        }],
+    };
+    let preset = StoredDeploymentRecord {
+        service: "frontend".into(),
+        app_values: HashMap::from([(String::from("image"), json!("nginx:1.27"))]),
+        qa_yaml: String::new(),
+        created_at_ms: 1,
+    };
+
+    apply_stored_values(&mut app, &preset);
+
+    assert_eq!(app.values[0].value, Some(json!("nginx:1.27")));
 }
 
 fn unique_test_dir(name: &str) -> PathBuf {

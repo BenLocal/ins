@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use tokio::fs;
 use tokio::io::AsyncReadExt;
 
-use super::{with_read_progress, with_write_progress, FileTrait, ProgressFn};
+use super::{FileTrait, ProgressFn, with_read_progress, with_write_progress};
 
 const CHUNK_SIZE: usize = 64 * 1024;
 
@@ -124,9 +124,7 @@ mod tests {
 
         assert_eq!(loaded, content);
         fs::remove_file(&path).await.unwrap();
-        fs::remove_dir_all(path.parent().unwrap())
-            .await
-            .unwrap();
+        fs::remove_dir_all(path.parent().unwrap()).await.unwrap();
     }
 
     #[tokio::test]
@@ -143,10 +141,15 @@ mod tests {
             })
         };
 
-        file.write(&path, content, Some(&write_progress)).await.unwrap();
+        file.write(&path, content, Some(&write_progress))
+            .await
+            .unwrap();
 
         let write_events = write_events.lock().unwrap().clone();
-        assert_eq!(write_events.first().copied(), Some((0, content.len() as u64)));
+        assert_eq!(
+            write_events.first().copied(),
+            Some((0, content.len() as u64))
+        );
         assert_eq!(
             write_events.last().copied(),
             Some((content.len() as u64, content.len() as u64))
@@ -164,7 +167,10 @@ mod tests {
         assert_eq!(loaded, content);
 
         let read_events = read_events.lock().unwrap().clone();
-        assert_eq!(read_events.first().copied(), Some((0, content.len() as u64)));
+        assert_eq!(
+            read_events.first().copied(),
+            Some((0, content.len() as u64))
+        );
         assert_eq!(
             read_events.last().copied(),
             Some((content.len() as u64, content.len() as u64))

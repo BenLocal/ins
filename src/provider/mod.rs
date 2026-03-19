@@ -19,7 +19,7 @@ impl DeploymentTarget {
 
 #[derive(Clone, Debug)]
 pub struct ProviderContext {
-    pub provider: Option<String>,
+    pub provider: String,
     pub node: NodeRecord,
     pub targets: Vec<DeploymentTarget>,
     pub workspace: PathBuf,
@@ -27,7 +27,7 @@ pub struct ProviderContext {
 
 impl ProviderContext {
     pub fn new(
-        provider: Option<String>,
+        provider: String,
         node: NodeRecord,
         targets: Vec<DeploymentTarget>,
         workspace: PathBuf,

@@ -10,6 +10,7 @@ mod app;
 mod cli;
 mod file;
 mod node;
+mod pipeline;
 mod provider;
 mod store;
 

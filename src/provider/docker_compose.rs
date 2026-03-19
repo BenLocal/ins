@@ -13,10 +13,7 @@ pub struct DockerComposeProvider;
 #[async_trait]
 impl ProviderTrait for DockerComposeProvider {
     async fn validate(&self, ctx: ProviderContext) -> anyhow::Result<()> {
-        println!(
-            "Provider '{}': validating deployment",
-            ctx.provider.as_deref().unwrap_or("docker-compose")
-        );
+        println!("Provider '{}': validating deployment", ctx.provider);
 
         match &ctx.node {
             NodeRecord::Local() => {
@@ -49,12 +46,18 @@ impl ProviderTrait for DockerComposeProvider {
 
                     if !status.success() {
                         return Err(anyhow!(
-                            "docker compose validation failed for app '{}' service '{}' (exit code {:?})",
+                            "❌ docker compose validation failed for app '{}' service '{}' (exit code {:?})",
                             target.app.name,
                             target.service,
                             status.code()
                         ));
                     }
+
+                    println!(
+                        "✅ docker compose validation passed for app '{}' service '{}'",
+                        target.app.name,
+                        target.service
+                    );
                 }
 
                 Ok(())
@@ -67,10 +70,7 @@ impl ProviderTrait for DockerComposeProvider {
     }
 
     async fn run(&self, ctx: ProviderContext) -> anyhow::Result<()> {
-        println!(
-            "Provider '{}': starting deployment",
-            ctx.provider.as_deref().unwrap_or("docker-compose")
-        );
+        println!("Provider '{}': starting deployment", ctx.provider);
 
         match &ctx.node {
             NodeRecord::Local() => {
@@ -113,12 +113,18 @@ impl ProviderTrait for DockerComposeProvider {
 
                     if !status.success() {
                         return Err(anyhow!(
-                            "docker compose up failed for app '{}' service '{}' (exit code {:?})",
+                            "❌ docker compose up failed for app '{}' service '{}' (exit code {:?})",
                             target.app.name,
                             target.service,
                             status.code()
                         ));
                     }
+
+                    println!(
+                        "✅ docker compose up succeeded for app '{}' service '{}'",
+                        target.app.name,
+                        target.service
+                    );
                 }
 
                 Ok(())

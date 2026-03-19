@@ -276,7 +276,7 @@ async fn copy_dir_recursive(
 }
 
 fn build_template_values(app_record: &AppRecord) -> anyhow::Result<Value> {
-    let resolved_values = resolve_app_values(app_record)?;
+    let resolved_values = resolve_app_values(app_record, None)?;
     let app_value = serde_json::to_value(app_record)
         .map_err(|e| anyhow!("serialize app record for template: {}", e))?;
     let mut vars = Map::new();
@@ -323,17 +323,18 @@ fn build_deployment_target(
     mut app: AppRecord,
     preset: Option<&StoredDeploymentRecord>,
 ) -> anyhow::Result<DeploymentTarget> {
-    let service = if should_reuse_stored_settings(&app, preset)? {
+    let reuse_stored = should_reuse_stored_settings(&app, preset)?;
+    let service = if reuse_stored {
         apply_stored_values(&mut app, preset.expect("preset exists when confirmed"));
         preset
             .expect("preset exists when confirmed")
             .service
             .clone()
     } else {
-        resolve_service_name(&app)?
+        resolve_service_name(&app, preset)?
     };
 
-    materialize_app_values(&mut app)?;
+    materialize_app_values(&mut app, if reuse_stored { None } else { preset })?;
     Ok(DeploymentTarget::new(app, service))
 }
 
@@ -365,15 +366,40 @@ fn apply_stored_values(app: &mut AppRecord, preset: &StoredDeploymentRecord) {
     }
 }
 
-fn materialize_app_values(app: &mut AppRecord) -> anyhow::Result<()> {
-    let resolved = resolve_app_values(app)?;
+fn materialize_app_values(
+    app: &mut AppRecord,
+    preset: Option<&StoredDeploymentRecord>,
+) -> anyhow::Result<()> {
+    let resolved = resolve_app_values(app, preset)?;
     for (value, resolved_value) in app.values.iter_mut().zip(resolved) {
         value.value = Some(resolved_value);
     }
     Ok(())
 }
 
-fn resolve_service_name(app: &AppRecord) -> anyhow::Result<String> {
+fn resolve_service_name(
+    app: &AppRecord,
+    preset: Option<&StoredDeploymentRecord>,
+) -> anyhow::Result<String> {
+    if let Some(preset) = preset {
+        if std::io::stdin().is_terminal() {
+            let options = vec![
+                format!("Use previous service ({})", preset.service),
+                format!("Use app name ({})", app.name),
+                "Enter service name manually".to_string(),
+            ];
+            let answer =
+                Select::new(&format!("Service name for app '{}'", app.name), options.clone())
+                    .prompt()?;
+            if answer == options[0] {
+                return Ok(preset.service.clone());
+            }
+            if answer == options[1] {
+                return Ok(app.name.clone());
+            }
+        }
+    }
+
     if !std::io::stdin().is_terminal() {
         return Ok(app.name.clone());
     }
@@ -390,13 +416,43 @@ fn resolve_service_name(app: &AppRecord) -> anyhow::Result<String> {
     Ok(trimmed.to_string())
 }
 
-fn resolve_app_values(app_record: &AppRecord) -> anyhow::Result<Vec<Value>> {
-    app_record.values.iter().map(resolve_app_value).collect()
+fn resolve_app_values(
+    app_record: &AppRecord,
+    preset: Option<&StoredDeploymentRecord>,
+) -> anyhow::Result<Vec<Value>> {
+    app_record
+        .values
+        .iter()
+        .map(|value| resolve_app_value(value, preset.and_then(|preset| preset.app_values.get(&value.name))))
+        .collect()
 }
 
-fn resolve_app_value(value: &AppValue) -> anyhow::Result<Value> {
+fn resolve_app_value(value: &AppValue, stored: Option<&Value>) -> anyhow::Result<Value> {
     if let Some(current) = value.value.clone() {
         return Ok(current);
+    }
+
+    if let Some(stored) = stored {
+        if !std::io::stdin().is_terminal() {
+            return Ok(stored.clone());
+        }
+
+        let stored_rendered = serde_json::to_string(stored).unwrap_or_else(|_| "<stored>".into());
+        let mut options = vec![format!("Use previous value ({stored_rendered})")];
+        if let Some(default) = value.default.clone() {
+            let default_rendered =
+                serde_json::to_string(&default).unwrap_or_else(|_| "<default>".into());
+            options.push(format!("Use default ({default_rendered})"));
+        }
+        options.push("Enter value manually".to_string());
+
+        let answer = Select::new(&value_prompt(value), options.clone()).prompt()?;
+        if answer == options[0] {
+            return Ok(stored.clone());
+        }
+        if options.len() == 3 && answer == options[1] {
+            return Ok(value.default.clone().unwrap_or(Value::Null));
+        }
     }
 
     if let Some(default) = value.default.clone() {

@@ -2,33 +2,42 @@
 
 ## Project Structure & Module Organization
 
-`ins` is a Rust CLI application. The entry point is `src/main.rs`, which wires the `app`, `node`, `cli`, and `provider` modules together. Command implementations live under `src/cli/` (`app.rs`, `node.rs`, `deploy.rs`). App parsing and schema types live under `src/app/`, node models under `src/node/`, and provider backends under `src/provider/`.
+`ins` is a Rust CLI application. The entry point is [src/main.rs](/root/workspace/master/ins/src/main.rs), which wires together the `app`, `node`, `cli`, `file`, and `provider` modules.
 
-Repository assets are minimal: `template/qa.yaml` is the built-in app template, and package metadata lives in `Cargo.toml`. There is no separate `tests/` directory today; tests are colocated with the modules they exercise.
+- `src/cli/`: command handlers such as `app.rs`, `node.rs`, and `deploy.rs`
+- `src/app/`: app parsing and schema types
+- `src/node/`: node models and listing logic
+- `src/file/`: local and remote file operations
+- `src/provider/`: provider backends, currently including Docker Compose support
+- `template/qa.yaml`: built-in app template
+
+Tests are colocated with implementation files, for example [src/app/parse_test.rs](/root/workspace/master/ins/src/app/parse_test.rs) and [src/cli/deploy_test.rs](/root/workspace/master/ins/src/cli/deploy_test.rs).
 
 ## Build, Test, and Development Commands
 
-- `cargo build`: compile the debug build for local development.
-- `cargo run -- --help`: run the CLI and inspect available commands.
-- `cargo test`: run unit and async tests across the crate.
-- `cargo fmt`: apply standard Rust formatting before submitting changes.
-- `cargo clippy --all-targets --all-features`: catch common Rust issues before opening a PR.
-- `cargo build --release --features duckdb-bundled`: produce a portable release build with bundled DuckDB.
+- `cargo build`: compile a debug build for local development
+- `cargo run -- --help`: run the CLI and inspect available commands
+- `cargo test`: run unit and async tests across the crate
+- `cargo fmt`: apply standard Rust formatting
+- `cargo clippy --all-targets --all-features`: catch common Rust issues before review
+- `cargo build --release --features duckdb-bundled`: build a portable release with bundled DuckDB
+
+Run `fmt`, `clippy`, and `test` before submitting changes.
 
 ## Coding Style & Naming Conventions
 
-Follow standard Rust formatting with 4-space indentation and `rustfmt` output. Use `snake_case` for files, modules, functions, and test names; use `CamelCase` for structs, enums, and traits. Keep modules focused by domain (`app`, `node`, `provider`, `cli`) and prefer small helper functions over large command handlers when logic grows.
+Use standard `rustfmt` formatting with 4-space indentation. Follow Rust naming conventions: `snake_case` for modules, files, functions, and test names; `CamelCase` for structs, enums, and traits.
 
-Use `anyhow::Result` for fallible command paths and keep user-facing CLI errors specific, including the affected file or path when possible.
+Prefer small helpers over large command handlers when logic grows. Use `anyhow::Result` for fallible CLI paths, and make user-facing errors specific, especially for file paths, templates, or remote operations.
 
 ## Testing Guidelines
 
-Prefer colocated tests with the code under test, using either `mod tests` blocks or sibling files like `src/app/parse_test.rs`. Use descriptive test names such as `load_app_record_parses_template_yaml`. Async behavior should use `#[tokio::test]`.
+Place tests next to the code they cover using `mod tests` blocks or sibling files ending in `_test.rs`. Use descriptive names such as `load_app_record_parses_template_yaml`. Async tests should use `#[tokio::test]`.
 
-Run `cargo test` before every PR. Add tests for parser changes, CLI argument handling, and file-system behavior that touches app templates or workspace copying.
+Add tests for parser changes, CLI argument behavior, and filesystem workflows that copy templates or interact with remote/local file layers.
 
 ## Commit & Pull Request Guidelines
 
-Recent commits use short, imperative summaries, for example `Improve error handling in node loading functions`. Keep commit subjects concise and focused on one logical change.
+Keep commit subjects short, imperative, and focused on one change, for example: `Improve error handling in node loading functions`.
 
-PRs should include a clear description, note any CLI behavior changes, and list verification steps run locally. Include sample command output when changing interactive flows or deployment behavior.
+Pull requests should describe the behavior change, note any CLI surface changes, and list local verification steps. Include sample command output when adjusting interactive flows or deployment behavior.

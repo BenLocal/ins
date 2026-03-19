@@ -8,10 +8,13 @@ use tokio::fs;
 use crate::app::parse::load_app_record;
 use crate::app::types::{AppRecord, AppValue};
 use crate::cli::{CommandContext, CommandTrait, node::nodes_file};
+use crate::file::local::LocalFile;
+use crate::file::remote::RemoteFile;
+use crate::file::FileTrait;
 use crate::node::list::load_all_nodes;
 use crate::node::types::NodeRecord;
 use crate::provider::docker_compose::DockerComposeProvider;
-use crate::provider::{ProviderContext, ProviderTrait as _};
+use crate::provider::{DeploymentTarget, ProviderContext, ProviderTrait as _};
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 
@@ -48,22 +51,32 @@ impl CommandTrait for DeployCommand {
         let app_home = ctx.home.join("app");
         let app_names = resolve_apps(args.apps, &app_home).await?;
         let apps = load_app_records_by_names(&app_names, &app_home).await?;
+        let targets = build_deployment_targets(apps)?;
 
         println!("Starting deployment...");
         println!("Provider Name: {}", &args.provider);
         println!("Node Name: {}", node_name(&node));
         println!("Apps: {}", &app_names.join(", "));
         println!("Workspace: {}", args.workspace.display());
+        println!("Deployment Targets:");
+        for target in &targets {
+            println!(
+                "  {} -> service {} -> {}",
+                target.app.name,
+                target.service,
+                args.workspace.join(&target.service).display()
+            );
+        }
 
         println!("Copying apps to workspace...");
-        copy_apps_to_workspace(&app_names, &app_home, &args.workspace).await?;
+        copy_apps_to_workspace(&targets, &app_home, &args.workspace, &node).await?;
 
         println!("Running provider...");
         provider
             .run(ProviderContext::new(
                 args.provider,
                 node,
-                apps,
+                targets,
                 args.workspace,
             ))
             .await?;
@@ -136,20 +149,25 @@ async fn load_app_records_by_names(
 }
 
 async fn copy_apps_to_workspace(
-    apps: &[String],
+    targets: &[DeploymentTarget],
     app_home: &Path,
     workspace: &Path,
+    node: &NodeRecord,
 ) -> anyhow::Result<()> {
-    fs::create_dir_all(workspace)
-        .await
-        .map_err(|e| anyhow!("create workspace {}: {}", workspace.display(), e))?;
+    target_file_for_node(node).create_dir_all(workspace).await?;
 
-    for app in apps {
-        let source_dir = app_home.join(app);
+    for target in targets {
+        let source_dir = app_home.join(&target.app.name);
         let qa_file = app_qa_file(&source_dir);
         let app_record = load_app_record(&qa_file).await?;
-        let target_dir = workspace.join(app);
-        copy_dir_recursive(&source_dir, &target_dir, &app_record).await?;
+        let target_dir = workspace.join(&target.service);
+        println!(
+            "\r  Copying app '{}' into service '{}' at {}",
+            target.app.name,
+            target.service,
+            target_dir.display()
+        );
+        copy_dir_recursive(&source_dir, &target_dir, &app_record, node).await?;
     }
 
     Ok(())
@@ -203,14 +221,14 @@ async fn copy_dir_recursive(
     source: &Path,
     target: &Path,
     app_record: &AppRecord,
+    node: &NodeRecord,
 ) -> anyhow::Result<()> {
     let mut stack = vec![(source.to_path_buf(), target.to_path_buf())];
     let template_values = build_template_values(app_record)?;
+    let target_file = target_file_for_node(node);
 
     while let Some((current_source, current_target)) = stack.pop() {
-        fs::create_dir_all(&current_target)
-            .await
-            .map_err(|e| anyhow!("create target dir {}: {}", current_target.display(), e))?;
+        target_file.create_dir_all(&current_target).await?;
 
         let mut entries = fs::read_dir(&current_source)
             .await
@@ -230,6 +248,7 @@ async fn copy_dir_recursive(
 
             if file_type.is_dir() {
                 let target_path = current_target.join(&file_name);
+                println!("\r    Creating directory {}", target_path.display());
                 stack.push((source_path, target_path));
                 continue;
             }
@@ -239,6 +258,7 @@ async fn copy_dir_recursive(
                 &current_target,
                 &file_name.to_string_lossy(),
                 &template_values,
+                target_file.as_ref(),
             )
             .await?;
         }
@@ -272,6 +292,38 @@ fn build_template_values(app_record: &AppRecord) -> anyhow::Result<Value> {
         "app": app_value,
         "vars": vars,
     }))
+}
+
+fn build_deployment_targets(apps: Vec<AppRecord>) -> anyhow::Result<Vec<DeploymentTarget>> {
+    apps.into_iter()
+        .map(|app| {
+            let default_service = app.name.clone();
+            let service = resolve_service_name(&app)?;
+            let service = if service.trim().is_empty() {
+                default_service
+            } else {
+                service
+            };
+            Ok(DeploymentTarget::new(app, service))
+        })
+        .collect()
+}
+
+fn resolve_service_name(app: &AppRecord) -> anyhow::Result<String> {
+    if !std::io::stdin().is_terminal() {
+        return Ok(app.name.clone());
+    }
+
+    let answer = Text::new(&format!("Service name for app '{}'", app.name))
+        .with_default(&app.name)
+        .prompt()?;
+    let trimmed = answer.trim();
+
+    if trimmed.is_empty() {
+        return Ok(app.name.clone());
+    }
+
+    Ok(trimmed.to_string())
 }
 
 fn resolve_app_values(app_record: &AppRecord) -> anyhow::Result<Vec<Value>> {
@@ -348,29 +400,42 @@ async fn copy_file_to_workspace(
     target_dir: &Path,
     file_name: &str,
     template_values: &serde_json::Value,
+    target_file: &dyn FileTrait,
 ) -> anyhow::Result<()> {
+    let source_file = LocalFile;
+
     if is_template_file(file_name) {
         let rendered_name = rendered_template_name(file_name);
         let target_path = target_dir.join(rendered_name);
-        let source = fs::read_to_string(source_path)
-            .await
-            .map_err(|e| anyhow!("read template {}: {}", source_path.display(), e))?;
+        println!(
+            "\r    Rendering template {} -> {}",
+            source_path.display(),
+            target_path.display()
+        );
+        let source = source_file.read(source_path, None).await.map_err(|e| {
+            anyhow!("read template {}: {}", source_path.display(), e)
+        })?;
         let rendered = render_template(&source, template_values)?;
-        fs::write(&target_path, rendered)
+        target_file
+            .write(&target_path, &rendered, None)
             .await
             .map_err(|e| anyhow!("write rendered file {}: {}", target_path.display(), e))?;
         return Ok(());
     }
 
     let target_path = target_dir.join(file_name);
-    fs::copy(source_path, &target_path).await.map_err(|e| {
-        anyhow!(
-            "copy {} to {}: {}",
-            source_path.display(),
-            target_path.display(),
-            e
-        )
+    println!(
+        "\r    Copying file {} -> {}",
+        source_path.display(),
+        target_path.display()
+    );
+    let source_bytes = source_file.read_bytes(source_path, None).await.map_err(|e| {
+        anyhow!("read source file {}: {}", source_path.display(), e)
     })?;
+    target_file
+        .write_bytes(&target_path, &source_bytes, None)
+        .await
+        .map_err(|e| anyhow!("copy {} to {}: {}", source_path.display(), target_path.display(), e))?;
     Ok(())
 }
 
@@ -404,6 +469,18 @@ fn rendered_template_name(file_name: &str) -> &str {
         .or_else(|| file_name.strip_suffix(".tmpl"))
         .or_else(|| file_name.strip_suffix(".j2"))
         .unwrap_or(file_name)
+}
+
+fn target_file_for_node(node: &NodeRecord) -> Box<dyn FileTrait> {
+    match node {
+        NodeRecord::Local() => Box::new(LocalFile),
+        NodeRecord::Remote(remote) => Box::new(RemoteFile::new(
+            remote.ip.clone(),
+            remote.port,
+            remote.user.clone(),
+            remote.password.clone(),
+        )),
+    }
 }
 
 fn node_name(node: &NodeRecord) -> &str {

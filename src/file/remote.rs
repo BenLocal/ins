@@ -118,7 +118,32 @@ impl russh::client::Handler for SftpClientHandler {
 
 #[async_trait]
 impl FileTrait for RemoteFile {
-    async fn read(&self, path: &Path, progress: Option<&ProgressFn>) -> anyhow::Result<String> {
+    async fn create_dir_all(&self, path: &Path) -> anyhow::Result<()> {
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| anyhow!("non-utf8 remote path {}", path.display()))?
+            .to_string();
+
+        self.with_sftp(|sftp| {
+            Box::pin(async move {
+                let dir_path = Path::new(&path_str);
+                if let Some(parent) = dir_path.parent() {
+                    if !parent.as_os_str().is_empty() {
+                        create_parent_dirs(&sftp, parent).await?;
+                    }
+                }
+                sftp.create_dir(&path_str).await.ok();
+                Ok(())
+            })
+        })
+        .await
+    }
+
+    async fn read_bytes(
+        &self,
+        path: &Path,
+        progress: Option<&ProgressFn>,
+    ) -> anyhow::Result<Vec<u8>> {
         let path_str = path
             .to_str()
             .ok_or_else(|| anyhow!("non-utf8 remote path {}", path.display()))?
@@ -133,11 +158,10 @@ impl FileTrait for RemoteFile {
         let content = self
             .with_sftp(|sftp| {
                 Box::pin(async move {
-                    let bytes = sftp
+                    sftp
                         .read(&path_str)
                         .await
-                        .map_err(|e| anyhow!("sftp read {}: {}", path_str, e))?;
-                    String::from_utf8(bytes).map_err(|e| anyhow!("remote file not utf-8: {}", e))
+                        .map_err(|e| anyhow!("sftp read {}: {}", path_str, e))
                 })
             })
             .await?;
@@ -152,17 +176,17 @@ impl FileTrait for RemoteFile {
         Ok(content)
     }
 
-    async fn write(
+    async fn write_bytes(
         &self,
         path: &Path,
-        content: &str,
+        content: &[u8],
         progress: Option<&ProgressFn>,
     ) -> anyhow::Result<()> {
         let path_str = path
             .to_str()
             .ok_or_else(|| anyhow!("non-utf8 remote path {}", path.display()))?
             .to_string();
-        let data = content.as_bytes().to_vec();
+        let data = content.to_vec();
         let data_len = data.len() as u64;
 
         let (bar, progress) = with_write_progress(path, data_len, progress);
@@ -207,4 +231,39 @@ async fn create_parent_dirs(sftp: &SftpSession, path: &Path) -> anyhow::Result<(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::*;
+
+    #[test]
+    fn remote_file_with_key_path_sets_field() {
+        let remote = RemoteFile::new("host".into(), 22, "user".into(), "secret".into())
+            .with_key_path("~/.ssh/id_rsa".into());
+
+        assert_eq!(remote.host, "host");
+        assert_eq!(remote.port, 22);
+        assert_eq!(remote.user, "user");
+        assert_eq!(remote.password, "secret");
+        assert_eq!(remote.key_path.as_deref(), Some("~/.ssh/id_rsa"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn remote_file_rejects_non_utf8_paths_before_network_access() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        let remote = RemoteFile::new("127.0.0.1".into(), 22, "user".into(), "secret".into());
+        let invalid = PathBuf::from(OsStr::from_bytes(b"/tmp/\xFFinvalid"));
+
+        let read_err = remote.read(&invalid, None).await.unwrap_err().to_string();
+        assert!(read_err.contains("non-utf8 remote path"));
+
+        let write_err = remote.write(&invalid, "data", None).await.unwrap_err().to_string();
+        assert!(write_err.contains("non-utf8 remote path"));
+    }
 }

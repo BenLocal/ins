@@ -1,5 +1,5 @@
+use anyhow::{Context, anyhow};
 use async_trait::async_trait;
-use anyhow::{anyhow, Context};
 use tokio::process::Command;
 
 use crate::node::types::NodeRecord;
@@ -10,10 +10,12 @@ pub struct DockerComposeProvider;
 #[async_trait]
 impl ProviderTrait for DockerComposeProvider {
     async fn run(&self, ctx: ProviderContext) -> anyhow::Result<()> {
+        println!("Provider '{}': starting deployment", ctx.provider);
+
         match &ctx.node {
             NodeRecord::Local() => {
-                for app in &ctx.apps {
-                    let app_dir = ctx.workspace.join(&app.name);
+                for target in &ctx.targets {
+                    let app_dir = ctx.workspace.join(&target.service);
                     let compose_yml = app_dir.join("docker-compose.yml");
                     let compose_yaml = app_dir.join("docker-compose.yaml");
 
@@ -24,10 +26,17 @@ impl ProviderTrait for DockerComposeProvider {
                     } else {
                         return Err(anyhow!(
                             "docker compose file not found for app '{}' in {}",
-                            app.name,
+                            target.app.name,
                             app_dir.display()
                         ));
                     };
+
+                    println!(
+                        "Deploying app '{}' as service '{}' from {}",
+                        target.app.name,
+                        target.service,
+                        app_dir.display()
+                    );
 
                     let status = Command::new("docker")
                         .arg("compose")
@@ -40,16 +49,18 @@ impl ProviderTrait for DockerComposeProvider {
                         .await
                         .with_context(|| {
                             format!(
-                                "failed to run docker compose for app '{}' (file {})",
-                                app.name,
+                                "failed to run docker compose for app '{}' service '{}' (file {})",
+                                target.app.name,
+                                target.service,
                                 compose_file.display()
                             )
                         })?;
 
                     if !status.success() {
                         return Err(anyhow!(
-                            "docker compose up failed for app '{}' (exit code {:?})",
-                            app.name,
+                            "docker compose up failed for app '{}' service '{}' (exit code {:?})",
+                            target.app.name,
+                            target.service,
                             status.code()
                         ));
                     }

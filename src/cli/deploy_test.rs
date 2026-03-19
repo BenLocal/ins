@@ -1,9 +1,10 @@
 use super::{
-    build_template_values, copy_apps_to_workspace, is_template_file, load_available_apps,
-    rendered_template_name, resolve_apps, select_node,
+    build_deployment_targets, build_template_values, copy_apps_to_workspace, is_template_file,
+    load_available_apps, rendered_template_name, resolve_apps, select_node,
 };
 use crate::app::types::{AppRecord, AppValue, AppValueOption, ScriptHook};
 use crate::node::types::{NodeRecord, RemoteNodeRecord};
+use crate::provider::DeploymentTarget;
 use serde_json::json;
 use std::{
     env,
@@ -112,11 +113,37 @@ async fn copy_apps_to_workspace_copies_app_files() -> anyhow::Result<()> {
     fs::write(alpha_dir.join("README.md"), "hello").await?;
     fs::write(scripts_dir.join("run.sh"), "#!/bin/bash").await?;
 
-    copy_apps_to_workspace(&["alpha".into()], &app_home, &workspace).await?;
-
+    let targets = vec![DeploymentTarget::new(app_record("alpha"), "alpha".into())];
+    copy_apps_to_workspace(&targets, &app_home, &workspace, &NodeRecord::Local()).await?;
     assert!(fs::try_exists(workspace.join("alpha").join("qa.yaml")).await?);
     assert!(fs::try_exists(workspace.join("alpha").join("README.md")).await?);
     assert!(fs::try_exists(workspace.join("alpha").join("scripts").join("run.sh")).await?);
+
+    fs::remove_dir_all(&app_home).await?;
+    fs::remove_dir_all(&workspace).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn copy_apps_to_workspace_preserves_binary_files_for_local_node() -> anyhow::Result<()> {
+    let app_home = unique_test_dir("deploy-copy-binary-home");
+    let workspace = unique_test_dir("deploy-copy-binary-workspace");
+    let alpha_dir = app_home.join("alpha");
+    let binary = vec![0_u8, 159, 146, 150, 255, 10];
+
+    fs::create_dir_all(&alpha_dir).await?;
+    fs::write(
+        alpha_dir.join("qa.yaml"),
+        QA_TEMPLATE.replace("<name>", "alpha"),
+    )
+    .await?;
+    fs::write(alpha_dir.join("blob.bin"), &binary).await?;
+
+    let targets = vec![DeploymentTarget::new(app_record("alpha"), "frontend".into())];
+    copy_apps_to_workspace(&targets, &app_home, &workspace, &NodeRecord::Local()).await?;
+
+    let copied = fs::read(workspace.join("frontend").join("blob.bin")).await?;
+    assert_eq!(copied, binary);
 
     fs::remove_dir_all(&app_home).await?;
     fs::remove_dir_all(&workspace).await?;
@@ -155,7 +182,8 @@ values:
     )
     .await?;
 
-    copy_apps_to_workspace(&["alpha".into()], &app_home, &workspace).await?;
+    let targets = vec![DeploymentTarget::new(app_record("alpha"), "alpha".into())];
+    copy_apps_to_workspace(&targets, &app_home, &workspace, &NodeRecord::Local()).await?;
 
     let rendered = fs::read_to_string(workspace.join("alpha").join("docker-compose.yml")).await?;
     assert_eq!(rendered, "name=alpha\nimage=nginx:latest");
@@ -190,7 +218,8 @@ values: []
     )
     .await?;
 
-    copy_apps_to_workspace(&["alpha".into()], &app_home, &workspace).await?;
+    let targets = vec![DeploymentTarget::new(app_record("alpha"), "alpha".into())];
+    copy_apps_to_workspace(&targets, &app_home, &workspace, &NodeRecord::Local()).await?;
 
     let rendered = fs::read_to_string(workspace.join("alpha").join("app.conf")).await?;
     assert_eq!(rendered, "name=alpha\nmissing=");
@@ -263,10 +292,50 @@ fn build_template_values_prefers_value_then_default_then_option() {
     assert_eq!(template_values["vars"]["from_option"], json!("picked"));
 }
 
+#[test]
+fn build_deployment_targets_defaults_service_to_app_name() {
+    let targets = build_deployment_targets(vec![
+        AppRecord {
+            name: "alpha".into(),
+            description: None,
+            before: ScriptHook::default(),
+            after: ScriptHook::default(),
+            files: None,
+            values: vec![],
+        },
+        AppRecord {
+            name: "beta".into(),
+            description: None,
+            before: ScriptHook::default(),
+            after: ScriptHook::default(),
+            files: None,
+            values: vec![],
+        },
+    ])
+    .expect("deployment targets");
+
+    assert_eq!(targets.len(), 2);
+    assert_eq!(targets[0].app.name, "alpha");
+    assert_eq!(targets[0].service, "alpha");
+    assert_eq!(targets[1].app.name, "beta");
+    assert_eq!(targets[1].service, "beta");
+}
+
 fn unique_test_dir(name: &str) -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("system time before unix epoch")
         .as_nanos();
     env::temp_dir().join(format!("ins-{name}-{}-{nanos}", std::process::id()))
+}
+
+fn app_record(name: &str) -> AppRecord {
+    AppRecord {
+        name: name.into(),
+        description: None,
+        before: ScriptHook::default(),
+        after: ScriptHook::default(),
+        files: None,
+        values: vec![],
+    }
 }

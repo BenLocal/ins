@@ -6,10 +6,22 @@ use crate::{app::types::AppRecord, node::types::NodeRecord};
 pub mod docker_compose;
 
 #[derive(Clone, Debug)]
+pub struct DeploymentTarget {
+    pub app: AppRecord,
+    pub service: String,
+}
+
+impl DeploymentTarget {
+    pub fn new(app: AppRecord, service: String) -> Self {
+        Self { app, service }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct ProviderContext {
     pub provider: String,
     pub node: NodeRecord,
-    pub apps: Vec<AppRecord>,
+    pub targets: Vec<DeploymentTarget>,
     pub workspace: PathBuf,
 }
 
@@ -17,13 +29,13 @@ impl ProviderContext {
     pub fn new(
         provider: String,
         node: NodeRecord,
-        apps: Vec<AppRecord>,
+        targets: Vec<DeploymentTarget>,
         workspace: PathBuf,
     ) -> Self {
         Self {
             provider,
             node,
-            apps,
+            targets,
             workspace,
         }
     }

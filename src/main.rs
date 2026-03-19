@@ -10,6 +10,7 @@ mod cli;
 mod file;
 mod node;
 mod provider;
+mod store;
 
 #[tokio::main]
 async fn main() {

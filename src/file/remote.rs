@@ -1,12 +1,14 @@
+use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::anyhow;
 use async_trait::async_trait;
-use russh::ChannelMsg;
+use crossterm::terminal;
 use russh::client::{self, Config, KeyboardInteractiveAuthResponse};
 use russh::keys::{PrivateKeyWithHashAlg, PublicKey, load_secret_key};
+use russh::{ChannelMsg, Pty};
 use russh_sftp::client::SftpSession;
 use tokio::io::AsyncWriteExt;
 
@@ -48,11 +50,40 @@ impl RemoteFile {
     }
 
     pub async fn exec(&self, command: &str) -> anyhow::Result<RemoteCommandOutput> {
+        self.exec_with_options(command, ExecOptions::default())
+            .await
+    }
+
+    pub async fn tty_exec(&self, command: &str) -> anyhow::Result<RemoteCommandOutput> {
+        self.exec_with_options(command, ExecOptions::tty()).await
+    }
+
+    async fn exec_with_options(
+        &self,
+        command: &str,
+        options: ExecOptions,
+    ) -> anyhow::Result<RemoteCommandOutput> {
         let handle = self.connect_handle().await?;
         let mut channel = handle
             .channel_open_session()
             .await
             .map_err(|e| anyhow!("open session channel: {}", e))?;
+
+        if options.request_tty {
+            let (cols, rows) = terminal_size();
+            channel
+                .request_pty(
+                    false,
+                    &terminal_type(),
+                    cols,
+                    rows,
+                    0,
+                    0,
+                    &[] as &[(Pty, u32)],
+                )
+                .await
+                .map_err(|e| anyhow!("ssh request pty '{}': {}", command, e))?;
+        }
 
         channel
             .exec(true, command)
@@ -65,8 +96,16 @@ impl RemoteFile {
 
         while let Some(msg) = channel.wait().await {
             match msg {
-                ChannelMsg::Data { data } => stdout.extend_from_slice(&data),
+                ChannelMsg::Data { data } => {
+                    if options.stream_output {
+                        write_and_flush_stdout(&data)?;
+                    }
+                    stdout.extend_from_slice(&data)
+                }
                 ChannelMsg::ExtendedData { data, ext } if ext == 1 => {
+                    if options.stream_output {
+                        write_and_flush_stderr(&data)?;
+                    }
                     stderr.extend_from_slice(&data)
                 }
                 ChannelMsg::ExitStatus {
@@ -139,6 +178,68 @@ impl RemoteFile {
 
         Ok(handle)
     }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct ExecOptions {
+    stream_output: bool,
+    request_tty: bool,
+}
+
+impl ExecOptions {
+    fn tty() -> Self {
+        Self {
+            stream_output: true,
+            request_tty: true,
+        }
+    }
+}
+
+fn terminal_type() -> String {
+    std::env::var("TERM")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "xterm-256color".to_string())
+}
+
+fn terminal_size() -> (u32, u32) {
+    if let Ok((cols, rows)) = terminal::size() {
+        if cols > 0 && rows > 0 {
+            return (u32::from(cols), u32::from(rows));
+        }
+    }
+
+    let cols = std::env::var("COLUMNS")
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(120);
+    let rows = std::env::var("LINES")
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(40);
+    (cols, rows)
+}
+
+fn write_and_flush_stdout(data: &[u8]) -> anyhow::Result<()> {
+    let mut stdout = std::io::stdout().lock();
+    stdout
+        .write_all(data)
+        .map_err(|e| anyhow!("write remote stdout to local stdout: {}", e))?;
+    stdout
+        .flush()
+        .map_err(|e| anyhow!("flush local stdout: {}", e))
+}
+
+fn write_and_flush_stderr(data: &[u8]) -> anyhow::Result<()> {
+    let mut stderr = std::io::stderr().lock();
+    stderr
+        .write_all(data)
+        .map_err(|e| anyhow!("write remote stderr to local stderr: {}", e))?;
+    stderr
+        .flush()
+        .map_err(|e| anyhow!("flush local stderr: {}", e))
 }
 
 async fn authenticate<H>(

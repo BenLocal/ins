@@ -186,7 +186,7 @@ impl ProviderTrait for DockerComposeProvider {
                         remote.name
                     );
 
-                    let output = remote_file.exec(&command).await.with_context(|| {
+                    let output = remote_file.tty_exec(&command).await.with_context(|| {
                         format!(
                             "failed to run docker compose for app '{}' service '{}' on node '{}'",
                             target.app.name, target.service, remote.name
@@ -389,6 +389,9 @@ fn shell_quote(value: &str) -> String {
 }
 
 fn render_remote_output(stdout: &str, stderr: &str) -> String {
+    let stdout = collapse_carriage_returns(stdout);
+    let stderr = collapse_carriage_returns(stderr);
+
     let mut lines = Vec::new();
     if !stdout.trim().is_empty() {
         lines.push(format!("stdout:\n{}", stdout.trim_end()));
@@ -401,6 +404,19 @@ fn render_remote_output(stdout: &str, stderr: &str) -> String {
     } else {
         lines.join("\n")
     }
+}
+
+/// Normalize carriage-return based progress (e.g. `\r` updating in-place).
+///
+/// We intentionally keep only the last "segment" after the last `\r` on each `\n`-separated line,
+/// so it won't keep re-printing / moving the cursor like a TTY would.
+fn collapse_carriage_returns(s: &str) -> String {
+    // Make Windows newlines consistent first.
+    let s = s.replace("\r\n", "\n");
+    s.split('\n')
+        .map(|line| line.split('\r').last().unwrap_or_default())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 async fn wait_for_child_or_ctrl_c(

@@ -4,6 +4,9 @@
 name: <name>
 # Application description
 description: <description>
+# Author name and email
+author_name: <author_name>
+author_email: <author_email>
 # Before script
 before:
   shell: bash

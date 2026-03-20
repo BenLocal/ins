@@ -186,17 +186,30 @@ pub async fn resolve_apps(
         return Ok(apps);
     }
 
-    let available_apps = load_available_apps(app_home).await?;
+    let available_apps = load_available_app_choices(app_home).await?;
     if available_apps.is_empty() {
         return Err(anyhow!("no apps found, please add an app first"));
     }
 
-    let selected = MultiSelect::new("Select apps to deploy", available_apps).prompt()?;
+    let labels: Vec<String> = available_apps
+        .iter()
+        .map(|choice| choice.label.clone())
+        .collect();
+    let selected = MultiSelect::new("Select apps to deploy", labels.clone()).prompt()?;
     if selected.is_empty() {
         return Err(anyhow!("no apps selected"));
     }
 
-    Ok(selected)
+    let mut selected_apps = Vec::new();
+    for label in selected {
+        let choice = available_apps
+            .iter()
+            .find(|choice| choice.label == label)
+            .ok_or_else(|| anyhow!("selected app option '{}' not found", label))?;
+        selected_apps.push(choice.name.clone());
+    }
+
+    Ok(selected_apps)
 }
 
 async fn load_app_records_by_names(
@@ -271,7 +284,7 @@ pub async fn copy_apps_to_workspace(
     Ok(())
 }
 
-pub async fn load_available_apps(app_home: &Path) -> anyhow::Result<Vec<String>> {
+async fn load_available_app_choices(app_home: &Path) -> anyhow::Result<Vec<AppChoice>> {
     fs::create_dir_all(app_home)
         .await
         .map_err(|e| anyhow!("create app home {}: {}", app_home.display(), e))?;
@@ -304,15 +317,60 @@ pub async fn load_available_apps(app_home: &Path) -> anyhow::Result<Vec<String>>
         }
 
         let app = load_app_record(&qa_file).await?;
-        apps.push(app.name);
+        apps.push(AppChoice {
+            label: app_choice_label(&app),
+            name: app.name,
+        });
     }
 
-    apps.sort();
+    apps.sort_by(|left, right| left.name.cmp(&right.name));
     Ok(apps)
 }
 
 fn app_qa_file(app_dir: &Path) -> PathBuf {
     app_dir.join("qa.yaml")
+}
+
+#[derive(Clone, Debug)]
+struct AppChoice {
+    name: String,
+    label: String,
+}
+
+pub(crate) fn app_choice_label(app: &AppRecord) -> String {
+    let mut parts = vec![app.name.clone()];
+    if let Some(description) = app
+        .description
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        parts.push(description.to_string());
+    }
+    if let Some(author) = author_display(app) {
+        parts.push(author);
+    }
+    parts.join(" | ")
+}
+
+fn author_display(app: &AppRecord) -> Option<String> {
+    let author_name = app
+        .author_name
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or_default();
+    let author_email = app
+        .author_email
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or_default();
+
+    match (author_name.is_empty(), author_email.is_empty()) {
+        (true, true) => None,
+        (false, true) => Some(author_name.to_string()),
+        (true, false) => Some(format!("作者({author_email})")),
+        (false, false) => Some(format!("{author_name}({author_email})")),
+    }
 }
 
 async fn copy_dir_recursive(

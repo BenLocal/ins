@@ -331,6 +331,8 @@ mod tests {
         AppRecord {
             name: name.into(),
             description: None,
+            author_name: None,
+            author_email: None,
             before: ScriptHook::default(),
             after: ScriptHook::default(),
             files: None,

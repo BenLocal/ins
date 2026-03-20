@@ -1,6 +1,6 @@
 use super::{
-    apply_stored_values, build_deployment_target, build_template_values, copy_apps_to_workspace,
-    is_template_file, load_available_apps, parse_number_value, rendered_template_name,
+    app_choice_label, apply_stored_values, build_deployment_target, build_template_values,
+    copy_apps_to_workspace, is_template_file, parse_number_value, rendered_template_name,
     resolve_apps, select_node,
 };
 use crate::app::types::{AppRecord, AppValue, AppValueOption, ScriptHook};
@@ -77,29 +77,23 @@ async fn resolve_apps_returns_error_when_no_apps_exist() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn load_available_apps_reads_apps_from_qa_files() -> anyhow::Result<()> {
-    let app_home = unique_test_dir("deploy-apps-list");
-    let alpha_dir = app_home.join("alpha");
-    let beta_dir = app_home.join("beta");
-    fs::create_dir_all(&alpha_dir).await?;
-    fs::create_dir_all(&beta_dir).await?;
-    fs::write(
-        alpha_dir.join("qa.yaml"),
-        QA_TEMPLATE.replace("<name>", "alpha"),
-    )
-    .await?;
-    fs::write(
-        beta_dir.join("qa.yaml"),
-        QA_TEMPLATE.replace("<name>", "beta"),
-    )
-    .await?;
+#[test]
+fn app_choice_label_includes_description_and_author() {
+    let app = AppRecord {
+        name: "nginx".into(),
+        description: Some("Static site server".into()),
+        author_name: Some("Alice".into()),
+        author_email: Some("alice@example.com".into()),
+        before: ScriptHook::default(),
+        after: ScriptHook::default(),
+        files: None,
+        values: vec![],
+    };
 
-    let apps = load_available_apps(&app_home).await?;
-    assert_eq!(apps, vec!["alpha".to_string(), "beta".to_string()]);
-
-    fs::remove_dir_all(&app_home).await?;
-    Ok(())
+    assert_eq!(
+        app_choice_label(&app),
+        "nginx - Static site server - Alice(alice@example.com)"
+    );
 }
 
 #[tokio::test]
@@ -199,6 +193,8 @@ values:
         AppRecord {
             name: "alpha".into(),
             description: None,
+            author_name: None,
+            author_email: None,
             before: ScriptHook::default(),
             after: ScriptHook::default(),
             files: None,
@@ -280,6 +276,8 @@ fn build_template_values_prefers_value_then_default_then_option() {
     let record = AppRecord {
         name: "demo".into(),
         description: None,
+        author_name: None,
+        author_email: None,
         before: ScriptHook::default(),
         after: ScriptHook::default(),
         files: None,
@@ -338,6 +336,8 @@ fn apply_stored_values_overrides_matching_app_values() {
     let mut app = AppRecord {
         name: "alpha".into(),
         description: None,
+        author_name: None,
+        author_email: None,
         before: ScriptHook::default(),
         after: ScriptHook::default(),
         files: None,
@@ -380,6 +380,8 @@ fn app_record(name: &str) -> AppRecord {
     AppRecord {
         name: name.into(),
         description: None,
+        author_name: None,
+        author_email: None,
         before: ScriptHook::default(),
         after: ScriptHook::default(),
         files: None,

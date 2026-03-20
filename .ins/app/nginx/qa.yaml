@@ -1,5 +1,7 @@
 name: nginx
 description: Nginx server
+author_name: aaa
+author_email: aa@example.com
 values:
   - name: port
     type: number

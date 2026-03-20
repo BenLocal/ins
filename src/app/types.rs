@@ -5,6 +5,8 @@ use serde_json::Value;
 pub(crate) struct AppRecord {
     pub(crate) name: String,
     pub(crate) description: Option<String>,
+    pub(crate) author_name: Option<String>,
+    pub(crate) author_email: Option<String>,
     #[serde(default)]
     pub(crate) before: ScriptHook,
     #[serde(default)]

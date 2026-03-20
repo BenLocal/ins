@@ -2,9 +2,13 @@ use async_trait::async_trait;
 
 use crate::cli::{CommandContext, CommandTrait};
 use crate::pipeline::{
-    PipelineArgs, PipelineMode, PreparedDeployment, apply_stored_values, build_deployment_target,
-    build_template_values, copy_apps_to_workspace, execute_pipeline, is_template_file,
-    load_available_apps, parse_number_value, prepare_deployment, rendered_template_name,
+    PipelineArgs, PipelineMode, PreparedDeployment, execute_pipeline, prepare_deployment,
+};
+
+#[cfg(test)]
+use crate::pipeline::{
+    apply_stored_values, build_deployment_target, build_template_values, copy_apps_to_workspace,
+    is_template_file, load_available_apps, parse_number_value, rendered_template_name,
     resolve_apps, select_node,
 };
 
@@ -32,7 +36,13 @@ impl CommandTrait for DeployCommand {
         )
         .await?;
 
-        execute_pipeline(&ctx.home, prepared, "Starting deployment...", PipelineMode::Deploy).await
+        execute_pipeline(
+            &ctx.home,
+            prepared,
+            "Starting deployment...",
+            PipelineMode::Deploy,
+        )
+        .await
     }
 }
 

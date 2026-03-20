@@ -29,6 +29,12 @@ impl CommandTrait for CheckCommand {
         )
         .await?;
 
-        execute_pipeline(&ctx.home, prepared, "Starting check...", PipelineMode::Check).await
+        execute_pipeline(
+            &ctx.home,
+            prepared,
+            "Starting check...",
+            PipelineMode::Check,
+        )
+        .await
     }
 }

@@ -55,8 +55,7 @@ impl ProviderTrait for DockerComposeProvider {
 
                     println!(
                         "✅ docker compose validation passed for app '{}' service '{}'",
-                        target.app.name,
-                        target.service
+                        target.app.name, target.service
                     );
                 }
 
@@ -104,12 +103,9 @@ impl ProviderTrait for DockerComposeProvider {
                             )
                         })?;
 
-                    let status = wait_for_child_or_ctrl_c(
-                        &mut child,
-                        &target.app.name,
-                        &target.service,
-                    )
-                    .await?;
+                    let status =
+                        wait_for_child_or_ctrl_c(&mut child, &target.app.name, &target.service)
+                            .await?;
 
                     if !status.success() {
                         return Err(anyhow!(
@@ -122,8 +118,7 @@ impl ProviderTrait for DockerComposeProvider {
 
                     println!(
                         "✅ docker compose up succeeded for app '{}' service '{}'",
-                        target.app.name,
-                        target.service
+                        target.app.name, target.service
                     );
                 }
 
@@ -137,7 +132,10 @@ impl ProviderTrait for DockerComposeProvider {
     }
 }
 
-fn compose_file_for_target(app_dir: &std::path::Path, app_name: &str) -> anyhow::Result<std::path::PathBuf> {
+fn compose_file_for_target(
+    app_dir: &std::path::Path,
+    app_name: &str,
+) -> anyhow::Result<std::path::PathBuf> {
     let compose_yml = app_dir.join("docker-compose.yml");
     let compose_yaml = app_dir.join("docker-compose.yaml");
 
@@ -205,9 +203,7 @@ fn terminate_process_group(child: &Child, signal: &str) {
             ),
             Err(err) => eprintln!(
                 "failed to send SIG{} to docker compose process group {}: {}",
-                signal,
-                pid,
-                err
+                signal, pid, err
             ),
         }
     }

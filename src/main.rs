@@ -3,7 +3,7 @@ use std::{env, fs, path::PathBuf};
 
 use crate::cli::{
     CommandContext, CommandTrait, app::AppCommand, check::CheckCommand, deploy::DeployCommand,
-    node::NodeCommand,
+    node::NodeCommand, service::ServiceCommand,
 };
 
 mod app;
@@ -31,6 +31,7 @@ async fn main() {
         Some(Command::Check(args)) => CheckCommand::run(args, CommandContext { home }).await,
         Some(Command::Node(args)) => NodeCommand::run(args, CommandContext { home }).await,
         Some(Command::App(args)) => AppCommand::run(args, CommandContext { home }).await,
+        Some(Command::Service(args)) => ServiceCommand::run(args, CommandContext { home }).await,
         None => {
             InsCli::command().print_help().expect("print help");
             println!();
@@ -86,4 +87,6 @@ enum Command {
     Node(cli::node::NodeArgs),
     /// Manage applications in the cluster.
     App(cli::app::AppArgs),
+    /// List installed services.
+    Service(cli::service::ServiceArgs),
 }

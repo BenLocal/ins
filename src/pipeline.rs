@@ -1,22 +1,22 @@
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
 use inquire::{Confirm, MultiSelect, Select, Text};
-use minijinja::{context, Environment, UndefinedBehavior};
+use minijinja::{Environment, UndefinedBehavior, context};
 use serde_json::{Map, Value};
 use tokio::fs;
 
 use crate::app::parse::load_app_record;
 use crate::app::types::{AppRecord, AppValue};
 use crate::cli::node::nodes_file;
+use crate::file::FileTrait;
 use crate::file::local::LocalFile;
 use crate::file::remote::RemoteFile;
-use crate::file::FileTrait;
 use crate::node::list::load_all_nodes;
 use crate::node::types::NodeRecord;
 use crate::provider::docker_compose::DockerComposeProvider;
 use crate::provider::{DeploymentTarget, ProviderContext, ProviderTrait};
 use crate::store::duck::{
-    load_latest_deployment_record, save_deployment_record, StoredDeploymentRecord,
+    StoredDeploymentRecord, load_latest_deployment_record, save_deployment_record,
 };
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
@@ -386,7 +386,10 @@ pub fn build_deployment_target(
     let reuse_stored = should_reuse_stored_settings(&app, preset)?;
     let service = if reuse_stored {
         apply_stored_values(&mut app, preset.expect("preset exists when confirmed"));
-        preset.expect("preset exists when confirmed").service.clone()
+        preset
+            .expect("preset exists when confirmed")
+            .service
+            .clone()
     } else {
         resolve_service_name(&app, preset)?
     };
@@ -447,9 +450,11 @@ fn resolve_service_name(
                 format!("Use app name ({})", app.name),
                 "Enter service name manually".to_string(),
             ];
-            let answer =
-                Select::new(&format!("Service name for app '{}'", app.name), options.clone())
-                    .prompt()?;
+            let answer = Select::new(
+                &format!("Service name for app '{}'", app.name),
+                options.clone(),
+            )
+            .prompt()?;
             if answer == options[0] {
                 return Ok(preset.service.clone());
             }
@@ -673,7 +678,14 @@ async fn copy_file_to_workspace(
     target_file
         .write_bytes(&target_path, &source_bytes, None)
         .await
-        .map_err(|e| anyhow!("copy {} to {}: {}", source_path.display(), target_path.display(), e))?;
+        .map_err(|e| {
+            anyhow!(
+                "copy {} to {}: {}",
+                source_path.display(),
+                target_path.display(),
+                e
+            )
+        })?;
     Ok(())
 }
 

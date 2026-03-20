@@ -2,6 +2,7 @@ pub mod app;
 pub mod check;
 pub mod deploy;
 pub mod node;
+pub mod service;
 
 use std::path::PathBuf;
 

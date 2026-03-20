@@ -3,9 +3,9 @@ use std::path::Path;
 use anyhow::Context;
 use async_trait::async_trait;
 use tokio::fs;
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use super::{FileTrait, ProgressFn, with_read_progress, with_write_progress};
+use super::{FileTrait, ProgressFn};
 
 const CHUNK_SIZE: usize = 64 * 1024;
 
@@ -25,8 +25,6 @@ impl FileTrait for LocalFile {
         path: &Path,
         progress: Option<&ProgressFn>,
     ) -> anyhow::Result<Vec<u8>> {
-        let (bar, progress) = with_read_progress(path, progress);
-
         let meta = fs::metadata(path)
             .await
             .with_context(|| format!("metadata {}", path.display()))?;
@@ -59,10 +57,6 @@ impl FileTrait for LocalFile {
             }
         }
 
-        if let Some(ref b) = bar {
-            b.finish_with_message("Done");
-        }
-
         Ok(buf)
     }
 
@@ -72,8 +66,6 @@ impl FileTrait for LocalFile {
         content: &[u8],
         progress: Option<&ProgressFn>,
     ) -> anyhow::Result<()> {
-        let (bar, progress) = with_write_progress(path, content.len() as u64, progress);
-
         if let Some(parent) = path.parent() {
             self.create_dir_all(parent).await?;
         }
@@ -81,14 +73,25 @@ impl FileTrait for LocalFile {
         if let Some(ref cb) = progress {
             cb(0, content.len() as u64);
         }
-        fs::write(path, content)
+        let mut file = fs::File::create(path)
             .await
-            .with_context(|| format!("write local file {}", path.display()))?;
+            .with_context(|| format!("create local file {}", path.display()))?;
+        let mut written = 0u64;
+        while written < content.len() as u64 {
+            let end = (written as usize + CHUNK_SIZE).min(content.len());
+            file.write_all(&content[written as usize..end])
+                .await
+                .with_context(|| format!("write local file {}", path.display()))?;
+            written = end as u64;
+            if let Some(ref cb) = progress {
+                cb(written, content.len() as u64);
+            }
+        }
+        file.flush()
+            .await
+            .with_context(|| format!("flush local file {}", path.display()))?;
         if let Some(ref cb) = progress {
             cb(content.len() as u64, content.len() as u64);
-        }
-        if let Some(ref b) = bar {
-            b.finish_with_message("Done");
         }
 
         Ok(())

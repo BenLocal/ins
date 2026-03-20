@@ -1,16 +1,19 @@
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use inquire::{Confirm, MultiSelect, Select, Text};
 use minijinja::{Environment, UndefinedBehavior, context};
 use serde_json::{Map, Value};
+use std::sync::Arc;
 use tokio::fs;
+use tokio::task::JoinSet;
 
 use crate::app::parse::load_app_record;
 use crate::app::types::{AppRecord, AppValue};
 use crate::cli::node::nodes_file;
-use crate::file::FileTrait;
 use crate::file::local::LocalFile;
 use crate::file::remote::RemoteFile;
+use crate::file::{FileTrait, ProgressFn};
 use crate::node::list::load_all_nodes;
 use crate::node::types::NodeRecord;
 use crate::provider::docker_compose::DockerComposeProvider;
@@ -20,6 +23,8 @@ use crate::store::duck::{
 };
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
+
+const COPY_CONCURRENCY: usize = 3;
 
 #[derive(clap::Args, Clone, Debug)]
 pub struct PipelineArgs {
@@ -239,14 +244,28 @@ pub async fn copy_apps_to_workspace(
         let source_dir = app_home.join(&target.app.name);
         let target_dir = workspace.join(&target.service);
 
-        // copy app files
-        println!(
-            "\r  Copying app '{}' into service '{}' at {}",
-            target.app.name,
-            target.service,
-            target_dir.display()
-        );
-        copy_dir_recursive(&source_dir, &target_dir, &target.app, node).await?;
+        if let Some(progress) =
+            CopyAppProgress::new(&target.app.name, &target.service, &source_dir, &target_dir)
+                .await?
+        {
+            copy_dir_recursive(
+                &source_dir,
+                &target_dir,
+                &target.app,
+                node,
+                Some(progress.clone()),
+            )
+            .await?;
+            progress.finish();
+        } else {
+            println!(
+                "  Copying app '{}' into service '{}' at {}",
+                target.app.name,
+                target.service,
+                target_dir.display()
+            );
+            copy_dir_recursive(&source_dir, &target_dir, &target.app, node, None).await?;
+        }
     }
 
     Ok(())
@@ -301,46 +320,41 @@ async fn copy_dir_recursive(
     target: &Path,
     app_record: &AppRecord,
     node: &NodeRecord,
+    progress: Option<Arc<CopyAppProgress>>,
 ) -> anyhow::Result<()> {
-    let mut stack = vec![(source.to_path_buf(), target.to_path_buf())];
     let template_values = build_template_values(app_record)?;
-    let target_file = target_file_for_node(node);
+    let jobs = collect_copy_jobs(source, target).await?;
+    target_file_for_node(node).create_dir_all(target).await?;
 
-    while let Some((current_source, current_target)) = stack.pop() {
-        target_file.create_dir_all(&current_target).await?;
+    if jobs.is_empty() {
+        return Ok(());
+    }
 
-        let mut entries = fs::read_dir(&current_source)
-            .await
-            .map_err(|e| anyhow!("read source dir {}: {}", current_source.display(), e))?;
+    let mut join_set = JoinSet::new();
+    let mut next_job = 0usize;
+    let mut available_slots: Vec<usize> = (0..COPY_CONCURRENCY.min(jobs.len())).rev().collect();
 
-        while let Some(entry) = entries
-            .next_entry()
-            .await
-            .map_err(|e| anyhow!("iterate source dir {}: {}", current_source.display(), e))?
-        {
-            let file_name = entry.file_name();
-            let source_path = entry.path();
-            let file_type = entry
-                .file_type()
-                .await
-                .map_err(|e| anyhow!("read file type {}: {}", source_path.display(), e))?;
-
-            if file_type.is_dir() {
-                let target_path = current_target.join(&file_name);
-                println!("\r    Creating directory {}", target_path.display());
-                stack.push((source_path, target_path));
-                continue;
-            }
-
-            copy_file_to_workspace(
-                &source_path,
-                &current_target,
-                &file_name.to_string_lossy(),
-                &template_values,
-                target_file.as_ref(),
-            )
-            .await?;
+    loop {
+        while next_job < jobs.len() && !available_slots.is_empty() {
+            let slot = available_slots.pop().expect("slot available");
+            let job = jobs[next_job].clone();
+            let template_values = template_values.clone();
+            let node = node.clone();
+            let slot_progress = progress.as_ref().map(|progress| progress.slot(slot));
+            join_set.spawn(async move {
+                let result =
+                    copy_file_to_workspace(job, &template_values, &node, slot_progress).await;
+                (slot, result)
+            });
+            next_job += 1;
         }
+
+        let Some(joined) = join_set.join_next().await else {
+            break;
+        };
+        let (slot, result) = joined.map_err(|e| anyhow!("copy task join error: {}", e))?;
+        result?;
+        available_slots.push(slot);
     }
 
     Ok(())
@@ -648,56 +662,286 @@ fn format_timestamp_ms(timestamp_ms: i64) -> String {
 }
 
 async fn copy_file_to_workspace(
-    source_path: &Path,
-    target_dir: &Path,
-    file_name: &str,
+    job: CopyJob,
     template_values: &serde_json::Value,
-    target_file: &dyn FileTrait,
+    node: &NodeRecord,
+    progress: Option<CopyProgressSlot>,
 ) -> anyhow::Result<()> {
     let source_file = LocalFile;
+    let target_file = target_file_for_node(node);
 
-    if is_template_file(file_name) {
-        let rendered_name = rendered_template_name(file_name);
-        let target_path = target_dir.join(rendered_name);
-        println!(
-            "\r    Rendering template {} -> {}",
-            source_path.display(),
-            target_path.display()
-        );
+    if job.render_as_template {
+        if let Some(progress) = progress.as_ref() {
+            progress.start_template(&job.target_path);
+        } else {
+            println!(
+                "    Rendering template {} -> {}",
+                job.source_path.display(),
+                job.target_path.display()
+            );
+        }
         let source = source_file
-            .read(source_path, None)
+            .read(&job.source_path, None)
             .await
-            .map_err(|e| anyhow!("read template {}: {}", source_path.display(), e))?;
+            .map_err(|e| anyhow!("read template {}: {}", job.source_path.display(), e))?;
         let rendered = render_template(&source, template_values)?;
+        let rendered_size = rendered.len() as u64;
+        if let Some(progress) = progress.as_ref() {
+            progress.begin_write_phase(rendered_size);
+        }
+        let progress_write = progress.as_ref().map(|progress| progress.write_progress());
         target_file
-            .write(&target_path, &rendered, None)
+            .write(&job.target_path, &rendered, progress_write.as_ref())
             .await
-            .map_err(|e| anyhow!("write rendered file {}: {}", target_path.display(), e))?;
+            .map_err(|e| anyhow!("write rendered file {}: {}", job.target_path.display(), e))?;
+        if let Some(progress) = progress.as_ref() {
+            progress.finish_file();
+        }
         return Ok(());
     }
 
-    let target_path = target_dir.join(file_name);
-    println!(
-        "\r    Copying file {} -> {}",
-        source_path.display(),
-        target_path.display()
-    );
-    let source_bytes = source_file
-        .read_bytes(source_path, None)
+    let source_meta = fs::metadata(&job.source_path)
         .await
-        .map_err(|e| anyhow!("read source file {}: {}", source_path.display(), e))?;
+        .map_err(|e| anyhow!("metadata source file {}: {}", job.source_path.display(), e))?;
+    let source_size = source_meta.len();
+    if let Some(progress) = progress.as_ref() {
+        progress.start_copy(&job.target_path, source_size);
+    } else {
+        println!(
+            "    Copying file {} -> {}",
+            job.source_path.display(),
+            job.target_path.display()
+        );
+    }
+    let source_bytes = source_file
+        .read_bytes(&job.source_path, None)
+        .await
+        .map_err(|e| anyhow!("read source file {}: {}", job.source_path.display(), e))?;
+    if let Some(progress) = progress.as_ref() {
+        progress.begin_write_phase(source_size);
+    }
+    let progress_write = progress.as_ref().map(|progress| progress.write_progress());
     target_file
-        .write_bytes(&target_path, &source_bytes, None)
+        .write_bytes(&job.target_path, &source_bytes, progress_write.as_ref())
         .await
         .map_err(|e| {
             anyhow!(
                 "copy {} to {}: {}",
-                source_path.display(),
-                target_path.display(),
+                job.source_path.display(),
+                job.target_path.display(),
                 e
             )
         })?;
+    if let Some(progress) = progress.as_ref() {
+        progress.finish_file();
+    }
     Ok(())
+}
+
+#[derive(Clone, Debug)]
+struct CopyJob {
+    source_path: PathBuf,
+    target_path: PathBuf,
+    render_as_template: bool,
+}
+
+struct CopyAppProgress {
+    _multi: Arc<MultiProgress>,
+    total_files: u64,
+    app_bar: ProgressBar,
+    file_bars: Vec<ProgressBar>,
+}
+
+#[derive(Clone)]
+struct CopyProgressSlot {
+    app_bar: ProgressBar,
+    file_bar: ProgressBar,
+}
+
+impl CopyAppProgress {
+    async fn new(
+        app_name: &str,
+        _service: &str,
+        source_dir: &Path,
+        target_dir: &Path,
+    ) -> anyhow::Result<Option<Arc<Self>>> {
+        if !std::io::stdout().is_terminal() {
+            return Ok(None);
+        }
+
+        let total_files = count_files_recursive(source_dir).await?;
+        let multi = Arc::new(MultiProgress::new());
+        let app_bar = multi.add(ProgressBar::new(total_files.max(1)));
+        app_bar.set_style(
+            ProgressStyle::with_template(
+                "{spinner:.green} {msg:<24} [{bar:24.cyan/blue}] {pos}/{len} files {elapsed_precise}",
+            )
+            .unwrap()
+            .progress_chars("█▉▊▋▌▍▎▏ "),
+        );
+        app_bar.set_message(format!("{app_name} -> {}", target_dir.display()));
+
+        let mut file_bars = Vec::new();
+        for index in 0..COPY_CONCURRENCY.min(total_files.max(1) as usize) {
+            let file_bar = multi.add(ProgressBar::new_spinner());
+            file_bar.set_style(
+                ProgressStyle::with_template(
+                    "   {spinner:.green} {msg:<64} {bytes}/{total_bytes} {elapsed_precise}",
+                )
+                .unwrap(),
+            );
+            file_bar.set_message(format!(
+                "Waiting {}/{} in {}",
+                index + 1,
+                COPY_CONCURRENCY,
+                target_dir.display()
+            ));
+            file_bar.finish_and_clear();
+            file_bars.push(file_bar);
+        }
+
+        Ok(Some(Arc::new(Self {
+            _multi: multi,
+            total_files: total_files.max(1),
+            app_bar,
+            file_bars,
+        })))
+    }
+
+    fn slot(&self, index: usize) -> CopyProgressSlot {
+        CopyProgressSlot {
+            app_bar: self.app_bar.clone(),
+            file_bar: self.file_bars[index].clone(),
+        }
+    }
+
+    fn finish(&self) {
+        for file_bar in &self.file_bars {
+            file_bar.finish_and_clear();
+        }
+        if self.total_files == 0 {
+            self.app_bar.set_length(0);
+        }
+        self.app_bar.finish_with_message("Copy complete");
+    }
+}
+
+impl CopyProgressSlot {
+    fn start_copy(&self, path: &Path, size: u64) {
+        self.file_bar.reset();
+        self.file_bar.reset_elapsed();
+        self.file_bar
+            .enable_steady_tick(std::time::Duration::from_millis(100));
+        self.file_bar.set_length(size.max(1));
+        self.file_bar.set_position(0);
+        self.file_bar
+            .set_message(format!("Copying {}", path.display()));
+    }
+
+    fn start_template(&self, path: &Path) {
+        self.file_bar.reset();
+        self.file_bar.reset_elapsed();
+        self.file_bar
+            .enable_steady_tick(std::time::Duration::from_millis(100));
+        self.file_bar.set_length(0);
+        self.file_bar.set_position(0);
+        self.file_bar
+            .set_message(format!("Rendering {}", path.display()));
+    }
+
+    fn begin_write_phase(&self, size: u64) {
+        self.file_bar.set_length(size.max(1));
+        self.file_bar.set_position(0);
+    }
+
+    fn write_progress(&self) -> ProgressFn {
+        let file_bar = self.file_bar.clone();
+        Arc::new(move |current, total| {
+            let target = total.max(1);
+            file_bar.set_length(target);
+            file_bar.set_position(current.min(target));
+        })
+    }
+
+    fn finish_file(&self) {
+        self.file_bar.disable_steady_tick();
+        self.file_bar.finish_and_clear();
+        self.app_bar.inc(1);
+    }
+}
+
+async fn collect_copy_jobs(source: &Path, target: &Path) -> anyhow::Result<Vec<CopyJob>> {
+    let mut jobs = Vec::new();
+    let mut stack = vec![(source.to_path_buf(), target.to_path_buf())];
+
+    while let Some((current_source, current_target)) = stack.pop() {
+        let mut entries = fs::read_dir(&current_source)
+            .await
+            .map_err(|e| anyhow!("read source dir {}: {}", current_source.display(), e))?;
+
+        while let Some(entry) = entries
+            .next_entry()
+            .await
+            .map_err(|e| anyhow!("iterate source dir {}: {}", current_source.display(), e))?
+        {
+            let file_name = entry.file_name();
+            let source_path = entry.path();
+            let file_type = entry
+                .file_type()
+                .await
+                .map_err(|e| anyhow!("read file type {}: {}", source_path.display(), e))?;
+
+            if file_type.is_dir() {
+                let target_path = current_target.join(&file_name);
+                stack.push((source_path, target_path));
+                continue;
+            }
+
+            let file_name = file_name.to_string_lossy().to_string();
+            let target_path = if is_template_file(&file_name) {
+                current_target.join(rendered_template_name(&file_name))
+            } else {
+                current_target.join(&file_name)
+            };
+            jobs.push(CopyJob {
+                source_path,
+                target_path,
+                render_as_template: is_template_file(&file_name),
+            });
+        }
+    }
+
+    Ok(jobs)
+}
+
+async fn count_files_recursive(root: &Path) -> anyhow::Result<u64> {
+    let mut count = 0u64;
+    let mut stack = vec![root.to_path_buf()];
+
+    while let Some(current) = stack.pop() {
+        let mut entries = fs::read_dir(&current)
+            .await
+            .map_err(|e| anyhow!("read source dir {}: {}", current.display(), e))?;
+
+        while let Some(entry) = entries
+            .next_entry()
+            .await
+            .map_err(|e| anyhow!("iterate source dir {}: {}", current.display(), e))?
+        {
+            let path = entry.path();
+            let file_type = entry
+                .file_type()
+                .await
+                .map_err(|e| anyhow!("read file type {}: {}", path.display(), e))?;
+            if file_type.is_dir() {
+                stack.push(path);
+            } else {
+                count += 1;
+            }
+        }
+    }
+
+    Ok(count)
 }
 
 fn render_template(source: &str, template_values: &serde_json::Value) -> anyhow::Result<String> {

@@ -12,7 +12,9 @@ use russh::{ChannelMsg, Pty};
 use russh_sftp::client::SftpSession;
 use tokio::io::AsyncWriteExt;
 
-use super::{FileTrait, ProgressFn, with_read_progress, with_write_progress};
+use super::{FileTrait, ProgressFn};
+
+const CHUNK_SIZE: usize = 64 * 1024;
 
 #[derive(Clone, Debug)]
 pub struct RemoteFile {
@@ -375,8 +377,6 @@ impl FileTrait for RemoteFile {
             .ok_or_else(|| anyhow!("non-utf8 remote path {}", path.display()))?
             .to_string();
 
-        let (bar, progress) = with_read_progress(path, progress);
-
         if let Some(ref cb) = progress {
             cb(0, 0);
         }
@@ -394,10 +394,6 @@ impl FileTrait for RemoteFile {
         if let Some(ref cb) = progress {
             cb(content.len() as u64, content.len() as u64);
         }
-        if let Some(ref b) = bar {
-            b.finish_with_message("Done");
-        }
-
         Ok(content)
     }
 
@@ -414,7 +410,7 @@ impl FileTrait for RemoteFile {
         let data = content.to_vec();
         let data_len = data.len() as u64;
 
-        let (bar, progress) = with_write_progress(path, data_len, progress);
+        let progress_cb = progress.cloned();
 
         if let Some(ref cb) = progress {
             cb(0, data_len);
@@ -431,9 +427,17 @@ impl FileTrait for RemoteFile {
                     .create(&path_str)
                     .await
                     .map_err(|e| anyhow!("sftp create {}: {}", path_str, e))?;
-                file.write_all(&data)
-                    .await
-                    .map_err(|e| anyhow!("sftp write {}: {}", path_str, e))?;
+                let mut written = 0usize;
+                while written < data.len() {
+                    let end = (written + CHUNK_SIZE).min(data.len());
+                    file.write_all(&data[written..end])
+                        .await
+                        .map_err(|e| anyhow!("sftp write {}: {}", path_str, e))?;
+                    written = end;
+                    if let Some(ref cb) = progress_cb {
+                        cb(written as u64, data_len);
+                    }
+                }
                 file.shutdown()
                     .await
                     .map_err(|e| anyhow!("sftp close {}: {}", path_str, e))
@@ -443,9 +447,6 @@ impl FileTrait for RemoteFile {
 
         if let Some(ref cb) = progress {
             cb(data_len, data_len);
-        }
-        if let Some(ref b) = bar {
-            b.finish_with_message("Done");
         }
 
         Ok(())

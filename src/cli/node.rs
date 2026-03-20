@@ -40,9 +40,12 @@ pub struct NodeAddArgs {
     /// Node user, default is root
     #[arg(long, default_value = "root")]
     pub user: String,
-    /// Node password
-    #[arg(long)]
+    /// Node password, or private key passphrase when used with --key-path
+    #[arg(long, default_value = "")]
     pub password: String,
+    /// Private key path for SSH authentication
+    #[arg(long)]
+    pub key_path: Option<String>,
 }
 
 #[derive(clap::Args, Clone, Debug)]
@@ -60,9 +63,12 @@ pub struct NodeSetArgs {
     /// Node user, default is root
     #[arg(long, default_value = "root")]
     pub user: String,
-    /// Node password
-    #[arg(long)]
+    /// Node password, or private key passphrase when used with --key-path
+    #[arg(long, default_value = "")]
     pub password: String,
+    /// Private key path for SSH authentication
+    #[arg(long)]
+    pub key_path: Option<String>,
 }
 
 #[derive(clap::Args, Clone, Debug, Default)]
@@ -99,6 +105,7 @@ async fn add_node(nodes_path: &PathBuf, args: NodeAddArgs) -> anyhow::Result<()>
         port: args.port,
         user: args.user,
         password: args.password,
+        key_path: args.key_path,
     });
 
     save_nodes(nodes_path, &nodes).await?;
@@ -116,6 +123,7 @@ async fn set_node(nodes_path: &PathBuf, args: NodeSetArgs) -> anyhow::Result<()>
     node.port = args.port;
     node.user = args.user;
     node.password = args.password;
+    node.key_path = args.key_path;
 
     save_nodes(nodes_path, &nodes).await?;
     println!("node set");

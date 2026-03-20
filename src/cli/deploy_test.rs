@@ -27,6 +27,7 @@ fn select_node_returns_requested_node_when_it_exists() {
             port: 22,
             user: "root".into(),
             password: "secret".into(),
+            key_path: None,
         }),
         NodeRecord::Remote(RemoteNodeRecord {
             name: "node-b".into(),
@@ -34,6 +35,7 @@ fn select_node_returns_requested_node_when_it_exists() {
             port: 22,
             user: "root".into(),
             password: "secret".into(),
+            key_path: None,
         }),
     ];
 

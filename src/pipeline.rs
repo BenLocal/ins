@@ -749,11 +749,19 @@ fn node_label(node: &NodeRecord) -> String {
 fn target_file_for_node(node: &NodeRecord) -> Box<dyn FileTrait> {
     match node {
         NodeRecord::Local() => Box::new(LocalFile),
-        NodeRecord::Remote(remote) => Box::new(RemoteFile::new(
-            remote.ip.clone(),
-            remote.port,
-            remote.user.clone(),
-            remote.password.clone(),
-        )),
+        NodeRecord::Remote(remote) => {
+            let remote_file = RemoteFile::new(
+                remote.ip.clone(),
+                remote.port,
+                remote.user.clone(),
+                remote.password.clone(),
+            );
+            let remote_file = if let Some(key_path) = &remote.key_path {
+                remote_file.with_key_path(key_path.clone())
+            } else {
+                remote_file
+            };
+            Box::new(remote_file)
+        }
     }
 }

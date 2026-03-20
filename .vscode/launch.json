@@ -19,8 +19,8 @@
             "args": [
                 "check",
                 "--provider=docker-compose",
-                "--node=local",
-                "--workspace=${workspaceFolder}/workspace",
+                "--node=114",
+                "--workspace=/iflytek/shiben/test/",
                 "nginx",
             ]
         },

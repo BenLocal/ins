@@ -15,6 +15,7 @@ use crate::provider::DeploymentTarget;
 pub struct StoredDeploymentRecord {
     pub service: String,
     pub app_values: HashMap<String, Value>,
+    #[allow(dead_code)]
     pub qa_yaml: String,
     pub created_at_ms: i64,
 }

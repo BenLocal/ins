@@ -4,9 +4,11 @@ use std::time::Duration;
 
 use anyhow::anyhow;
 use async_trait::async_trait;
-use russh::client::{self, Config};
+use russh::ChannelMsg;
+use russh::client::{self, Config, KeyboardInteractiveAuthResponse};
 use russh::keys::{PrivateKeyWithHashAlg, PublicKey, load_secret_key};
 use russh_sftp::client::SftpSession;
+use tokio::io::AsyncWriteExt;
 
 use super::{FileTrait, ProgressFn, with_read_progress, with_write_progress};
 
@@ -21,6 +23,13 @@ pub struct RemoteFile {
     pub key_path: Option<String>,
 }
 
+#[derive(Clone, Debug)]
+pub struct RemoteCommandOutput {
+    pub exit_status: u32,
+    pub stdout: String,
+    pub stderr: String,
+}
+
 impl RemoteFile {
     pub fn new(host: String, port: u16, user: String, password: String) -> Self {
         Self {
@@ -32,9 +41,46 @@ impl RemoteFile {
         }
     }
 
+    #[allow(dead_code)]
     pub fn with_key_path(mut self, path: String) -> Self {
         self.key_path = Some(path);
         self
+    }
+
+    pub async fn exec(&self, command: &str) -> anyhow::Result<RemoteCommandOutput> {
+        let handle = self.connect_handle().await?;
+        let mut channel = handle
+            .channel_open_session()
+            .await
+            .map_err(|e| anyhow!("open session channel: {}", e))?;
+
+        channel
+            .exec(true, command)
+            .await
+            .map_err(|e| anyhow!("ssh exec '{}': {}", command, e))?;
+
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let mut exit_status = None;
+
+        while let Some(msg) = channel.wait().await {
+            match msg {
+                ChannelMsg::Data { data } => stdout.extend_from_slice(&data),
+                ChannelMsg::ExtendedData { data, ext } if ext == 1 => {
+                    stderr.extend_from_slice(&data)
+                }
+                ChannelMsg::ExitStatus {
+                    exit_status: status,
+                } => exit_status = Some(status),
+                _ => {}
+            }
+        }
+
+        Ok(RemoteCommandOutput {
+            exit_status: exit_status.unwrap_or(0),
+            stdout: String::from_utf8_lossy(&stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&stderr).into_owned(),
+        })
     }
 
     /// Connect, authenticate, open SFTP subsystem and run the given closure with SftpSession.
@@ -47,51 +93,7 @@ impl RemoteFile {
             + Send,
         T: Send,
     {
-        let addrs = (self.host.as_str(), self.port);
-        let config = Config {
-            inactivity_timeout: Some(Duration::from_secs(30)),
-            ..Default::default()
-        };
-        let config = Arc::new(config);
-        let handler = SftpClientHandler;
-
-        let mut handle = client::connect(config, addrs, handler)
-            .await
-            .map_err(|e| anyhow!("ssh connect to {}:{}: {}", self.host, self.port, e))?;
-
-        let auth_ok = if let Some(ref key_path) = self.key_path {
-            let passphrase = if self.password.is_empty() {
-                None
-            } else {
-                Some(self.password.as_str())
-            };
-            let key_pair = load_secret_key(key_path, passphrase)
-                .map_err(|e| anyhow!("load key {}: {}", key_path, e))?;
-            let hash_alg = handle
-                .best_supported_rsa_hash()
-                .await
-                .ok()
-                .flatten()
-                .flatten();
-            let auth = handle
-                .authenticate_publickey(
-                    self.user.clone(),
-                    PrivateKeyWithHashAlg::new(Arc::new(key_pair), hash_alg),
-                )
-                .await
-                .map_err(|e| anyhow!("ssh pubkey auth: {}", e))?;
-            auth.success()
-        } else {
-            let auth = handle
-                .authenticate_password(self.user.clone(), self.password.clone())
-                .await
-                .map_err(|e| anyhow!("ssh password auth: {}", e))?;
-            auth.success()
-        };
-
-        if !auth_ok {
-            return Err(anyhow!("ssh authentication failed for user {}", self.user));
-        }
+        let handle = self.connect_handle().await?;
 
         let channel = handle
             .channel_open_session()
@@ -109,6 +111,120 @@ impl RemoteFile {
             .map_err(|e| anyhow!("sftp session: {}", e))?;
 
         f(sftp).await
+    }
+
+    async fn connect_handle(&self) -> anyhow::Result<client::Handle<SftpClientHandler>> {
+        let addrs = (self.host.as_str(), self.port);
+        let config = Config {
+            inactivity_timeout: Some(Duration::from_secs(30)),
+            ..Default::default()
+        };
+        let config = Arc::new(config);
+        let handler = SftpClientHandler;
+
+        let mut handle = client::connect(config, addrs, handler)
+            .await
+            .map_err(|e| anyhow!("ssh connect to {}:{}: {}", self.host, self.port, e))?;
+
+        let auth_ok = authenticate(&mut handle, self).await?;
+
+        if !auth_ok {
+            return Err(anyhow!(
+                "ssh authentication failed for user {} at {}:{}",
+                self.user,
+                self.host,
+                self.port
+            ));
+        }
+
+        Ok(handle)
+    }
+}
+
+async fn authenticate<H>(
+    handle: &mut client::Handle<H>,
+    remote: &RemoteFile,
+) -> anyhow::Result<bool>
+where
+    H: client::Handler,
+{
+    let key_path = remote
+        .key_path
+        .as_ref()
+        .map(|p| p.as_str())
+        .unwrap_or("~/.ssh/id_rsa");
+
+    if !key_path.is_empty() && Path::new(key_path).exists() {
+        let key_pair =
+            load_secret_key(key_path, None).map_err(|e| anyhow!("load key {}: {}", key_path, e))?;
+        let hash_alg = handle
+            .best_supported_rsa_hash()
+            .await
+            .ok()
+            .flatten()
+            .flatten();
+        let auth = handle
+            .authenticate_publickey(
+                remote.user.clone(),
+                PrivateKeyWithHashAlg::new(Arc::new(key_pair), hash_alg),
+            )
+            .await
+            .map_err(|e| anyhow!("ssh pubkey auth: {}", e))?;
+        if auth.success() {
+            return Ok(true);
+        }
+    }
+
+    if !remote.password.is_empty() {
+        let auth = handle
+            .authenticate_password(remote.user.clone(), remote.password.clone())
+            .await
+            .map_err(|e| anyhow!("ssh password auth: {}", e))?;
+        if auth.success() {
+            return Ok(true);
+        }
+
+        if authenticate_keyboard_interactive(handle, remote).await? {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
+async fn authenticate_keyboard_interactive<H>(
+    handle: &mut client::Handle<H>,
+    remote: &RemoteFile,
+) -> anyhow::Result<bool>
+where
+    H: client::Handler,
+{
+    let mut response = handle
+        .authenticate_keyboard_interactive_start(remote.user.clone(), None::<String>)
+        .await
+        .map_err(|e| anyhow!("ssh keyboard-interactive auth start: {}", e))?;
+
+    loop {
+        match response {
+            KeyboardInteractiveAuthResponse::Success => return Ok(true),
+            KeyboardInteractiveAuthResponse::Failure { .. } => return Ok(false),
+            KeyboardInteractiveAuthResponse::InfoRequest { prompts, .. } => {
+                let responses = prompts
+                    .into_iter()
+                    .map(|prompt| {
+                        if prompt.prompt.is_empty() {
+                            String::new()
+                        } else {
+                            remote.password.clone()
+                        }
+                    })
+                    .collect();
+                response = handle
+                    .authenticate_keyboard_interactive_respond(responses)
+                    .await
+                    .map_err(|e| anyhow!("ssh keyboard-interactive auth respond: {}", e))?;
+            }
+        }
     }
 }
 
@@ -141,7 +257,7 @@ impl FileTrait for RemoteFile {
                         create_parent_dirs(&sftp, parent).await?;
                     }
                 }
-                sftp.create_dir(&path_str).await.ok();
+                ensure_remote_dir(&sftp, &path_str).await?;
                 Ok(())
             })
         })
@@ -210,9 +326,16 @@ impl FileTrait for RemoteFile {
                         create_parent_dirs(&sftp, parent).await?;
                     }
                 }
-                sftp.write(&path_str, &data)
+                let mut file = sftp
+                    .create(&path_str)
                     .await
-                    .map_err(|e| anyhow!("sftp write {}: {}", path_str, e))
+                    .map_err(|e| anyhow!("sftp create {}: {}", path_str, e))?;
+                file.write_all(&data)
+                    .await
+                    .map_err(|e| anyhow!("sftp write {}: {}", path_str, e))?;
+                file.shutdown()
+                    .await
+                    .map_err(|e| anyhow!("sftp close {}: {}", path_str, e))
             })
         })
         .await?;
@@ -235,10 +358,35 @@ async fn create_parent_dirs(sftp: &SftpSession, path: &Path) -> anyhow::Result<(
         prefix.push(comp);
         let s = prefix.to_string_lossy();
         if !s.is_empty() {
-            sftp.create_dir(s.as_ref()).await.ok(); // ignore if exists
+            ensure_remote_dir(sftp, s.as_ref()).await?;
         }
     }
     Ok(())
+}
+
+async fn ensure_remote_dir(sftp: &SftpSession, path: &str) -> anyhow::Result<()> {
+    if sftp
+        .try_exists(path)
+        .await
+        .map_err(|e| anyhow!("sftp stat {}: {}", path, e))?
+    {
+        return Ok(());
+    }
+
+    match sftp.create_dir(path).await {
+        Ok(()) => Ok(()),
+        Err(create_err) => {
+            if sftp
+                .try_exists(path)
+                .await
+                .map_err(|e| anyhow!("sftp stat {} after mkdir failure: {}", path, e))?
+            {
+                Ok(())
+            } else {
+                Err(anyhow!("sftp mkdir {}: {}", path, create_err))
+            }
+        }
+    }
 }
 
 #[cfg(test)]

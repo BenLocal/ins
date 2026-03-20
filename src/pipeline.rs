@@ -105,7 +105,6 @@ pub async fn copy_prepared_apps_to_workspace(
     home: &Path,
     prepared: &PreparedDeployment,
 ) -> anyhow::Result<()> {
-    println!("Copying apps to workspace...");
     copy_apps_to_workspace(
         home,
         &prepared.targets,
@@ -218,12 +217,29 @@ pub async fn copy_apps_to_workspace(
     workspace: &Path,
     node: &NodeRecord,
 ) -> anyhow::Result<()> {
-    target_file_for_node(node).create_dir_all(workspace).await?;
-
+    println!("Saving deployment records...");
     for target in targets {
         let source_dir = app_home.join(&target.app.name);
         let qa_file = app_qa_file(&source_dir);
+        // save deployment record
+        let qa_yaml = fs::read_to_string(&qa_file)
+            .await
+            .map_err(|e| anyhow!("read qa file {}: {}", qa_file.display(), e))?;
+        println!(
+            "Save deployment record for app '{}' into service '{}'",
+            target.app.name, target.service
+        );
+        save_deployment_record(home, node, workspace, target, &qa_yaml).await?;
+    }
+
+    target_file_for_node(node).create_dir_all(workspace).await?;
+
+    println!("Copying app files to workspace...");
+    for target in targets {
+        let source_dir = app_home.join(&target.app.name);
         let target_dir = workspace.join(&target.service);
+
+        // copy app files
         println!(
             "\r  Copying app '{}' into service '{}' at {}",
             target.app.name,
@@ -231,11 +247,6 @@ pub async fn copy_apps_to_workspace(
             target_dir.display()
         );
         copy_dir_recursive(&source_dir, &target_dir, &target.app, node).await?;
-
-        let qa_yaml = fs::read_to_string(&qa_file)
-            .await
-            .map_err(|e| anyhow!("read qa file {}: {}", qa_file.display(), e))?;
-        save_deployment_record(home, node, workspace, target, &qa_yaml).await?;
     }
 
     Ok(())

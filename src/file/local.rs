@@ -29,10 +29,10 @@ impl FileTrait for LocalFile {
             .await
             .with_context(|| format!("metadata {}", path.display()))?;
         let total = meta.len();
-        if progress.is_some() && total > 0 {
-            if let Some(ref cb) = progress {
-                cb(0, total);
-            }
+        if total > 0
+            && let Some(cb) = progress
+        {
+            cb(0, total);
         }
 
         let mut file = fs::File::open(path)
@@ -52,7 +52,7 @@ impl FileTrait for LocalFile {
             chunk.truncate(n);
             buf.extend_from_slice(&chunk);
             read += n as u64;
-            if let Some(ref cb) = progress {
+            if let Some(cb) = progress {
                 cb(read, total);
             }
         }
@@ -70,7 +70,7 @@ impl FileTrait for LocalFile {
             self.create_dir_all(parent).await?;
         }
 
-        if let Some(ref cb) = progress {
+        if let Some(cb) = progress {
             cb(0, content.len() as u64);
         }
         let mut file = fs::File::create(path)
@@ -83,14 +83,14 @@ impl FileTrait for LocalFile {
                 .await
                 .with_context(|| format!("write local file {}", path.display()))?;
             written = end as u64;
-            if let Some(ref cb) = progress {
+            if let Some(cb) = progress {
                 cb(written, content.len() as u64);
             }
         }
         file.flush()
             .await
             .with_context(|| format!("flush local file {}", path.display()))?;
-        if let Some(ref cb) = progress {
+        if let Some(cb) = progress {
             cb(content.len() as u64, content.len() as u64);
         }
 

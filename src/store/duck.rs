@@ -29,6 +29,17 @@ pub struct InstalledServiceRecord {
     pub created_at_ms: i64,
 }
 
+#[derive(Clone, Debug)]
+pub struct InstalledServiceConfigRecord {
+    pub service: String,
+    pub app_name: String,
+    pub node_name: String,
+    pub workspace: String,
+    pub app_values: HashMap<String, Value>,
+    pub qa_yaml: String,
+    pub created_at_ms: i64,
+}
+
 pub async fn load_latest_deployment_record(
     home: &Path,
     node: &NodeRecord,
@@ -78,6 +89,16 @@ pub async fn list_installed_services(home: &Path) -> anyhow::Result<Vec<Installe
     tokio::task::spawn_blocking(move || list_installed_services_sync(&db_path))
         .await
         .map_err(|e| anyhow!("join duckdb service list: {}", e))?
+}
+
+pub async fn load_installed_service_configs(
+    home: &Path,
+) -> anyhow::Result<Vec<InstalledServiceConfigRecord>> {
+    let db_path = db_path(home);
+
+    tokio::task::spawn_blocking(move || load_installed_service_configs_sync(&db_path))
+        .await
+        .map_err(|e| anyhow!("join duckdb service config list: {}", e))?
 }
 
 fn load_latest_deployment_record_sync(
@@ -184,6 +205,56 @@ fn list_installed_services_sync(db_path: &Path) -> anyhow::Result<Vec<InstalledS
             node_name: row.get(2).context("read node_name")?,
             workspace: row.get(3).context("read workspace")?,
             created_at_ms: row.get(4).context("read created_at_ms")?,
+        });
+    }
+
+    Ok(services)
+}
+
+fn load_installed_service_configs_sync(
+    db_path: &Path,
+) -> anyhow::Result<Vec<InstalledServiceConfigRecord>> {
+    let conn = open_db(db_path)?;
+    ensure_schema(&conn)?;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT service, app_name, node_name, workspace, app_values_json, qa_yaml, created_at_ms
+             FROM (
+                 SELECT
+                     service,
+                     app_name,
+                     node_name,
+                     workspace,
+                     app_values_json,
+                     qa_yaml,
+                     created_at_ms,
+                     ROW_NUMBER() OVER (
+                         PARTITION BY service
+                         ORDER BY created_at_ms DESC
+                     ) AS row_num
+                 FROM deployment_history
+             )
+             WHERE row_num = 1
+             ORDER BY service ASC",
+        )
+        .context("prepare installed service config lookup")?;
+    let mut rows = stmt.query([]).context("query installed service configs")?;
+    let mut services = Vec::new();
+
+    while let Some(row) = rows.next().context("read installed service config row")? {
+        let app_values_json: String = row.get(4).context("read app_values_json")?;
+        let app_values: HashMap<String, Value> =
+            serde_json::from_str(&app_values_json).context("parse app_values_json")?;
+
+        services.push(InstalledServiceConfigRecord {
+            service: row.get(0).context("read service")?,
+            app_name: row.get(1).context("read app_name")?,
+            node_name: row.get(2).context("read node_name")?,
+            workspace: row.get(3).context("read workspace")?,
+            app_values,
+            qa_yaml: row.get(5).context("read qa_yaml")?,
+            created_at_ms: row.get(6).context("read created_at_ms")?,
         });
     }
 
@@ -319,6 +390,34 @@ mod tests {
         Ok(())
     }
 
+    #[tokio::test]
+    async fn load_installed_service_configs_returns_latest_values_per_service() -> anyhow::Result<()>
+    {
+        let home = unique_test_dir("duck-store-service-config-home");
+        let workspace = home.join("workspace");
+        let node = NodeRecord::Local();
+        let original = DeploymentTarget::new(app_record("nginx", json!("nginx:1.0")), "web".into());
+        let newer = DeploymentTarget::new(app_record("caddy", json!("caddy:1.0")), "web".into());
+
+        save_deployment_record(&home, &node, &workspace, &original, "name: nginx\n").await?;
+        tokio::time::sleep(Duration::from_millis(2)).await;
+        save_deployment_record(&home, &node, &workspace, &newer, "name: caddy\n").await?;
+
+        let services = load_installed_service_configs(&home).await?;
+
+        assert_eq!(services.len(), 1);
+        assert_eq!(services[0].service, "web");
+        assert_eq!(services[0].app_name, "caddy");
+        assert_eq!(
+            services[0].app_values.get("image"),
+            Some(&json!("caddy:1.0"))
+        );
+        assert_eq!(services[0].qa_yaml, "name: caddy\n");
+
+        std::fs::remove_dir_all(&home)?;
+        Ok(())
+    }
+
     fn unique_test_dir(name: &str) -> PathBuf {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -330,9 +429,11 @@ mod tests {
     fn app_record(name: &str, value: Value) -> AppRecord {
         AppRecord {
             name: name.into(),
+            version: None,
             description: None,
             author_name: None,
             author_email: None,
+            dependencies: vec![],
             before: ScriptHook::default(),
             after: ScriptHook::default(),
             files: None,

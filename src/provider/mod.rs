@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use crate::{app::types::AppRecord, node::types::NodeRecord};
@@ -23,6 +24,7 @@ pub struct ProviderContext {
     pub node: NodeRecord,
     pub targets: Vec<DeploymentTarget>,
     pub workspace: PathBuf,
+    pub envs: BTreeMap<String, BTreeMap<String, String>>,
 }
 
 impl ProviderContext {
@@ -31,13 +33,19 @@ impl ProviderContext {
         node: NodeRecord,
         targets: Vec<DeploymentTarget>,
         workspace: PathBuf,
+        envs: BTreeMap<String, BTreeMap<String, String>>,
     ) -> Self {
         Self {
             provider,
             node,
             targets,
             workspace,
+            envs,
         }
+    }
+
+    pub fn env_for_target(&self, service: &str) -> BTreeMap<String, String> {
+        self.envs.get(service).cloned().unwrap_or_default()
     }
 }
 

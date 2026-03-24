@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
 use async_trait::async_trait;
@@ -130,13 +130,13 @@ async fn set_node(nodes_path: &PathBuf, args: NodeSetArgs) -> anyhow::Result<()>
     Ok(())
 }
 
-async fn list_nodes(nodes_path: &PathBuf) -> anyhow::Result<()> {
+async fn list_nodes(nodes_path: &Path) -> anyhow::Result<()> {
     let nodes = load_all_nodes(nodes_path).await?;
     println!("{}", serde_json::to_string_pretty(&nodes)?);
     Ok(())
 }
 
-pub(crate) fn nodes_file(home: &PathBuf) -> PathBuf {
+pub(crate) fn nodes_file(home: &Path) -> PathBuf {
     home.join("nodes.json")
 }
 

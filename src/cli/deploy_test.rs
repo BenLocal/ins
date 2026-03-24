@@ -1,7 +1,7 @@
 use super::{
-    app_choice_label, apply_stored_values, build_deployment_target, build_template_values,
-    copy_apps_to_workspace, is_template_file, parse_number_value, rendered_template_name,
-    resolve_apps, select_node,
+    app_choice_label, apply_stored_values, build_compose_metadata_labels, build_deployment_target,
+    build_template_values, copy_apps_to_workspace, is_template_file, parse_number_value,
+    rendered_template_name, resolve_apps, select_node,
 };
 use crate::app::types::{AppRecord, AppValue, AppValueOption, ScriptHook};
 use crate::node::types::{NodeRecord, RemoteNodeRecord};
@@ -81,9 +81,11 @@ async fn resolve_apps_returns_error_when_no_apps_exist() -> anyhow::Result<()> {
 fn app_choice_label_includes_description_and_author() {
     let app = AppRecord {
         name: "nginx".into(),
+        version: None,
         description: Some("Static site server".into()),
         author_name: Some("Alice".into()),
         author_email: Some("alice@example.com".into()),
+        dependencies: vec![],
         before: ScriptHook::default(),
         after: ScriptHook::default(),
         files: None,
@@ -192,9 +194,11 @@ values:
     let targets = vec![DeploymentTarget::new(
         AppRecord {
             name: "alpha".into(),
+            version: None,
             description: None,
             author_name: None,
             author_email: None,
+            dependencies: vec![],
             before: ScriptHook::default(),
             after: ScriptHook::default(),
             files: None,
@@ -218,6 +222,185 @@ values:
     fs::remove_dir_all(&app_home).await?;
     fs::remove_dir_all(&workspace).await?;
     Ok(())
+}
+
+#[tokio::test]
+async fn copy_apps_to_workspace_adds_metadata_labels_to_docker_compose_yml() -> anyhow::Result<()> {
+    let home = unique_test_dir("deploy-compose-labels-yml-home");
+    let app_home = unique_test_dir("deploy-compose-labels-yml-app-home");
+    let workspace = unique_test_dir("deploy-compose-labels-yml-workspace");
+    let alpha_dir = app_home.join("alpha");
+
+    fs::create_dir_all(&alpha_dir).await?;
+    fs::write(
+        alpha_dir.join("qa.yaml"),
+        r#"
+name: alpha
+version: 1.2.3
+description: demo app
+author_name: Alice
+author_email: alice@example.com
+values: []
+"#
+        .trim_start(),
+    )
+    .await?;
+    fs::write(
+        alpha_dir.join("docker-compose.yml"),
+        r#"
+services:
+  web:
+    image: nginx:latest
+    labels:
+      com.example.keep: "yes"
+  worker:
+    image: busybox
+"#
+        .trim_start(),
+    )
+    .await?;
+
+    let targets = vec![DeploymentTarget::new(
+        AppRecord {
+            name: "alpha".into(),
+            version: Some("1.2.3".into()),
+            description: Some("demo app".into()),
+            author_name: Some("Alice".into()),
+            author_email: Some("alice@example.com".into()),
+            dependencies: vec![],
+            before: ScriptHook::default(),
+            after: ScriptHook::default(),
+            files: None,
+            values: vec![],
+        },
+        "alpha".into(),
+    )];
+    copy_apps_to_workspace(&home, &targets, &app_home, &workspace, &NodeRecord::Local()).await?;
+
+    let rendered = fs::read_to_string(workspace.join("alpha").join("docker-compose.yml")).await?;
+    let compose: serde_yaml::Value = serde_yaml::from_str(&rendered)?;
+    let web_labels = &compose["services"]["web"]["labels"];
+    let worker_labels = &compose["services"]["worker"]["labels"];
+
+    assert_eq!(web_labels["com.example.keep"], "yes");
+    assert_eq!(web_labels["ins.node_name"], "local");
+    assert_eq!(web_labels["ins.description"], "demo app");
+    assert_eq!(web_labels["ins.author_name"], "Alice");
+    assert_eq!(web_labels["ins.author_email"], "alice@example.com");
+    assert_eq!(web_labels["ins.version"], "1.2.3");
+
+    assert_eq!(worker_labels["ins.node_name"], "local");
+    assert_eq!(worker_labels["ins.description"], "demo app");
+    assert_eq!(worker_labels["ins.author_name"], "Alice");
+    assert_eq!(worker_labels["ins.author_email"], "alice@example.com");
+    assert_eq!(worker_labels["ins.version"], "1.2.3");
+
+    fs::remove_dir_all(&home).await?;
+    fs::remove_dir_all(&app_home).await?;
+    fs::remove_dir_all(&workspace).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn copy_apps_to_workspace_adds_metadata_labels_to_docker_compose_yaml_template()
+-> anyhow::Result<()> {
+    let home = unique_test_dir("deploy-compose-labels-yaml-home");
+    let app_home = unique_test_dir("deploy-compose-labels-yaml-app-home");
+    let workspace = unique_test_dir("deploy-compose-labels-yaml-workspace");
+    let alpha_dir = app_home.join("alpha");
+
+    fs::create_dir_all(&alpha_dir).await?;
+    fs::write(
+        alpha_dir.join("qa.yaml"),
+        r#"
+name: alpha
+version: 2.0.0
+description: template app
+author_name: Bob
+author_email: bob@example.com
+values: []
+"#
+        .trim_start(),
+    )
+    .await?;
+    fs::write(
+        alpha_dir.join("docker-compose.yaml.j2"),
+        r#"
+services:
+  web:
+    image: {{ app.name }}:latest
+    labels:
+      - traefik.enable=true
+"#
+        .trim_start(),
+    )
+    .await?;
+
+    let targets = vec![DeploymentTarget::new(
+        AppRecord {
+            name: "alpha".into(),
+            version: Some("2.0.0".into()),
+            description: Some("template app".into()),
+            author_name: Some("Bob".into()),
+            author_email: Some("bob@example.com".into()),
+            dependencies: vec![],
+            before: ScriptHook::default(),
+            after: ScriptHook::default(),
+            files: None,
+            values: vec![],
+        },
+        "alpha".into(),
+    )];
+
+    copy_apps_to_workspace(&home, &targets, &app_home, &workspace, &NodeRecord::Local()).await?;
+
+    let rendered = fs::read_to_string(workspace.join("alpha").join("docker-compose.yaml")).await?;
+    let compose: serde_yaml::Value = serde_yaml::from_str(&rendered)?;
+    let labels = &compose["services"]["web"]["labels"];
+
+    assert_eq!(labels["traefik.enable"], "true");
+    assert_eq!(labels["ins.node_name"], "local");
+    assert_eq!(labels["ins.description"], "template app");
+    assert_eq!(labels["ins.author_name"], "Bob");
+    assert_eq!(labels["ins.author_email"], "bob@example.com");
+    assert_eq!(labels["ins.version"], "2.0.0");
+
+    fs::remove_dir_all(&home).await?;
+    fs::remove_dir_all(&app_home).await?;
+    fs::remove_dir_all(&workspace).await?;
+    Ok(())
+}
+
+#[test]
+fn build_compose_metadata_labels_uses_remote_node_name() {
+    let template_values = serde_json::json!({
+        "app": {
+            "name": "alpha",
+            "version": "3.0.0",
+            "description": "demo",
+            "author_name": "Alice",
+            "author_email": "alice@example.com"
+        }
+    });
+    let node = NodeRecord::Remote(RemoteNodeRecord {
+        name: "node-a".into(),
+        ip: "10.0.0.1".into(),
+        port: 22,
+        user: "root".into(),
+        password: "secret".into(),
+        key_path: None,
+    });
+
+    let labels = build_compose_metadata_labels(&template_values, &node);
+
+    assert_eq!(labels.get("ins.node_name"), Some(&String::from("node-a")));
+    assert_eq!(labels.get("ins.description"), Some(&String::from("demo")));
+    assert_eq!(labels.get("ins.author_name"), Some(&String::from("Alice")));
+    assert_eq!(
+        labels.get("ins.author_email"),
+        Some(&String::from("alice@example.com"))
+    );
+    assert_eq!(labels.get("ins.version"), Some(&String::from("3.0.0")));
 }
 
 #[tokio::test]
@@ -275,9 +458,11 @@ fn template_file_detection_and_output_name_work() {
 fn build_template_values_prefers_value_then_default_then_option() {
     let record = AppRecord {
         name: "demo".into(),
+        version: None,
         description: None,
         author_name: None,
         author_email: None,
+        dependencies: vec![],
         before: ScriptHook::default(),
         after: ScriptHook::default(),
         files: None,
@@ -335,9 +520,11 @@ fn build_deployment_target_defaults_service_to_app_name() {
 fn apply_stored_values_overrides_matching_app_values() {
     let mut app = AppRecord {
         name: "alpha".into(),
+        version: None,
         description: None,
         author_name: None,
         author_email: None,
+        dependencies: vec![],
         before: ScriptHook::default(),
         after: ScriptHook::default(),
         files: None,
@@ -379,9 +566,11 @@ fn unique_test_dir(name: &str) -> PathBuf {
 fn app_record(name: &str) -> AppRecord {
     AppRecord {
         name: name.into(),
+        version: None,
         description: None,
         author_name: None,
         author_email: None,
+        dependencies: vec![],
         before: ScriptHook::default(),
         after: ScriptHook::default(),
         files: None,

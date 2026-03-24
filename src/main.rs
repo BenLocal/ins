@@ -1,5 +1,5 @@
 use clap::{CommandFactory, Parser};
-use std::{env, fs, path::PathBuf};
+use std::{env as std_env, fs, path::PathBuf};
 
 use crate::cli::{
     CommandContext, CommandTrait, app::AppCommand, check::CheckCommand, deploy::DeployCommand,
@@ -8,6 +8,7 @@ use crate::cli::{
 
 mod app;
 mod cli;
+mod env;
 mod file;
 mod node;
 mod pipeline;
@@ -56,12 +57,12 @@ fn ensure_home_dir(path: &PathBuf) -> anyhow::Result<PathBuf> {
 fn default_home_dir() -> PathBuf {
     // Prefer local project directory if `.ins/` exists.
     if std::path::Path::new(".ins").is_dir() {
-        return env::current_dir()
+        return std_env::current_dir()
             .unwrap_or_else(|_| PathBuf::from("."))
             .join(".ins");
     }
 
-    env::var_os("HOME")
+    std_env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."))
         .join(".ins")

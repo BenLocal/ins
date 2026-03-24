@@ -2,11 +2,15 @@
 
 # Application name
 name: <name>
+# Application version
+version: <version>
 # Application description
 description: <description>
 # Author name and email
 author_name: <author_name>
 author_email: <author_email>
+# Dependency service names, injected into provider env when installed
+dependencies: []
 # Before script
 before:
   shell: bash

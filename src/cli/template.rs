@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{Context, bail};
 use async_trait::async_trait;
@@ -75,7 +75,7 @@ async fn init_app_template(home: &Path, name: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn write_template_files(app_dir: &PathBuf, name: &str) -> anyhow::Result<()> {
+async fn write_template_files(app_dir: &Path, name: &str) -> anyhow::Result<()> {
     let qa_content = QA_TEMPLATE.replacen("name: <name>", &format!("name: {name}"), 1);
     let qa_file = app_dir.join("qa.yaml");
     let before_file = app_dir.join("before.sh");

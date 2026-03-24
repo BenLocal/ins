@@ -104,7 +104,7 @@ impl RemoteFile {
                     }
                     stdout.extend_from_slice(&data)
                 }
-                ChannelMsg::ExtendedData { data, ext } if ext == 1 => {
+                ChannelMsg::ExtendedData { data, ext: 1 } => {
                     if options.stream_output {
                         write_and_flush_stderr(&data)?;
                     }
@@ -205,10 +205,11 @@ fn terminal_type() -> String {
 }
 
 fn terminal_size() -> (u32, u32) {
-    if let Ok((cols, rows)) = terminal::size() {
-        if cols > 0 && rows > 0 {
-            return (u32::from(cols), u32::from(rows));
-        }
+    if let Ok((cols, rows)) = terminal::size()
+        && cols > 0
+        && rows > 0
+    {
+        return (u32::from(cols), u32::from(rows));
     }
 
     let cols = std::env::var("COLUMNS")
@@ -251,11 +252,7 @@ async fn authenticate<H>(
 where
     H: client::Handler,
 {
-    let key_path = remote
-        .key_path
-        .as_ref()
-        .map(|p| p.as_str())
-        .unwrap_or("~/.ssh/id_rsa");
+    let key_path = remote.key_path.as_deref().unwrap_or("~/.ssh/id_rsa");
 
     if !key_path.is_empty() && Path::new(key_path).exists() {
         let key_pair =
@@ -355,10 +352,10 @@ impl FileTrait for RemoteFile {
         self.with_sftp(|sftp| {
             Box::pin(async move {
                 let dir_path = Path::new(&path_str);
-                if let Some(parent) = dir_path.parent() {
-                    if !parent.as_os_str().is_empty() {
-                        create_parent_dirs(&sftp, parent).await?;
-                    }
+                if let Some(parent) = dir_path.parent()
+                    && !parent.as_os_str().is_empty()
+                {
+                    create_parent_dirs(&sftp, parent).await?;
                 }
                 ensure_remote_dir(&sftp, &path_str).await?;
                 Ok(())
@@ -377,7 +374,7 @@ impl FileTrait for RemoteFile {
             .ok_or_else(|| anyhow!("non-utf8 remote path {}", path.display()))?
             .to_string();
 
-        if let Some(ref cb) = progress {
+        if let Some(cb) = progress {
             cb(0, 0);
         }
 
@@ -391,7 +388,7 @@ impl FileTrait for RemoteFile {
             })
             .await?;
 
-        if let Some(ref cb) = progress {
+        if let Some(cb) = progress {
             cb(content.len() as u64, content.len() as u64);
         }
         Ok(content)
@@ -412,16 +409,16 @@ impl FileTrait for RemoteFile {
 
         let progress_cb = progress.cloned();
 
-        if let Some(ref cb) = progress {
+        if let Some(cb) = progress {
             cb(0, data_len);
         }
 
         self.with_sftp(|sftp| {
             Box::pin(async move {
-                if let Some(parent) = Path::new(&path_str).parent() {
-                    if !parent.as_os_str().is_empty() {
-                        create_parent_dirs(&sftp, parent).await?;
-                    }
+                if let Some(parent) = Path::new(&path_str).parent()
+                    && !parent.as_os_str().is_empty()
+                {
+                    create_parent_dirs(&sftp, parent).await?;
                 }
                 let mut file = sftp
                     .create(&path_str)
@@ -434,7 +431,7 @@ impl FileTrait for RemoteFile {
                         .await
                         .map_err(|e| anyhow!("sftp write {}: {}", path_str, e))?;
                     written = end;
-                    if let Some(ref cb) = progress_cb {
+                    if let Some(cb) = &progress_cb {
                         cb(written as u64, data_len);
                     }
                 }
@@ -445,7 +442,7 @@ impl FileTrait for RemoteFile {
         })
         .await?;
 
-        if let Some(ref cb) = progress {
+        if let Some(cb) = progress {
             cb(data_len, data_len);
         }
 

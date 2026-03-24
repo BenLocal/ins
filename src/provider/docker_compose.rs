@@ -1,10 +1,12 @@
 use anyhow::{Context, anyhow};
 use async_trait::async_trait;
+use std::collections::BTreeMap;
 use tokio::process::Child;
 use tokio::process::Command;
 use tokio::signal;
 use tokio::time::{Duration, sleep};
 
+use crate::env::{shell_exports, shell_quote};
 use crate::file::remote::RemoteFile;
 use crate::node::types::NodeRecord;
 use crate::provider::{ProviderContext, ProviderTrait};
@@ -29,6 +31,7 @@ impl ProviderTrait for DockerComposeProvider {
                 for target in &ctx.targets {
                     let app_dir = ctx.workspace.join(&target.service);
                     let compose_file = compose_file_for_target(&app_dir, &target.app.name)?;
+                    let envs = ctx.env_for_target(&target.service);
 
                     println!(
                         "Validating app '{}' as service '{}' from {}",
@@ -41,6 +44,7 @@ impl ProviderTrait for DockerComposeProvider {
                         compose_command,
                         &compose_file,
                         &app_dir,
+                        &envs,
                         &["config", "-q"],
                     )
                     .await
@@ -74,8 +78,9 @@ impl ProviderTrait for DockerComposeProvider {
 
                 for target in &ctx.targets {
                     let app_dir = ctx.workspace.join(&target.service);
+                    let envs = ctx.env_for_target(&target.service);
                     let command =
-                        docker_compose_shell_command(compose_command, &app_dir, "config -q");
+                        docker_compose_shell_command(compose_command, &app_dir, &envs, "config -q");
 
                     println!(
                         "Validating app '{}' as service '{}' from {} on remote node '{}'",
@@ -125,6 +130,7 @@ impl ProviderTrait for DockerComposeProvider {
                 for target in &ctx.targets {
                     let app_dir = ctx.workspace.join(&target.service);
                     let compose_file = compose_file_for_target(&app_dir, &target.app.name)?;
+                    let envs = ctx.env_for_target(&target.service);
 
                     println!(
                         "Deploying app '{}' as service '{}' from {}",
@@ -137,6 +143,7 @@ impl ProviderTrait for DockerComposeProvider {
                         compose_command,
                         &compose_file,
                         &app_dir,
+                        &envs,
                         &["up", "-d"],
                     )
                     .await
@@ -176,7 +183,9 @@ impl ProviderTrait for DockerComposeProvider {
 
                 for target in &ctx.targets {
                     let app_dir = ctx.workspace.join(&target.service);
-                    let command = docker_compose_shell_command(compose_command, &app_dir, "up -d");
+                    let envs = ctx.env_for_target(&target.service);
+                    let command =
+                        docker_compose_shell_command(compose_command, &app_dir, &envs, "up -d");
 
                     println!(
                         "Deploying app '{}' as service '{}' from {} on remote node '{}'",
@@ -258,9 +267,11 @@ async fn run_local_compose_command(
     compose_command: ComposeCommandKind,
     compose_file: &std::path::Path,
     app_dir: &std::path::Path,
+    envs: &BTreeMap<String, String>,
     args: &[&str],
 ) -> anyhow::Result<std::process::ExitStatus> {
-    let mut command = build_local_compose_command(compose_command, compose_file, app_dir, args);
+    let mut command =
+        build_local_compose_command(compose_command, compose_file, app_dir, envs, args);
     command.status().await.map_err(anyhow::Error::from)
 }
 
@@ -268,9 +279,11 @@ async fn spawn_local_compose_command(
     compose_command: ComposeCommandKind,
     compose_file: &std::path::Path,
     app_dir: &std::path::Path,
+    envs: &BTreeMap<String, String>,
     args: &[&str],
 ) -> anyhow::Result<Child> {
-    let mut command = build_local_compose_command(compose_command, compose_file, app_dir, args);
+    let mut command =
+        build_local_compose_command(compose_command, compose_file, app_dir, envs, args);
     command
         .kill_on_drop(true)
         .process_group(0)
@@ -282,6 +295,7 @@ fn build_local_compose_command(
     compose_command: ComposeCommandKind,
     compose_file: &std::path::Path,
     app_dir: &std::path::Path,
+    envs: &BTreeMap<String, String>,
     args: &[&str],
 ) -> Command {
     let mut command = match compose_command {
@@ -297,6 +311,7 @@ fn build_local_compose_command(
     for arg in args {
         command.arg(arg);
     }
+    command.envs(envs);
     command.current_dir(app_dir);
     command
 }
@@ -369,6 +384,7 @@ else exit 1; fi",
 fn docker_compose_shell_command(
     compose_command: ComposeCommandKind,
     app_dir: &std::path::Path,
+    envs: &BTreeMap<String, String>,
     docker_compose_args: &str,
 ) -> String {
     let app_dir = shell_quote(&app_dir.display().to_string());
@@ -376,16 +392,18 @@ fn docker_compose_shell_command(
         ComposeCommandKind::DockerComposePlugin => "docker compose",
         ComposeCommandKind::DockerComposeBinary => "docker-compose",
     };
+    let exports = shell_exports(envs);
+    let prefix = if exports.is_empty() {
+        String::new()
+    } else {
+        format!("{exports} ")
+    };
     format!(
         "cd {app_dir} && if [ -f docker-compose.yml ]; then compose_file=docker-compose.yml; \
 elif [ -f docker-compose.yaml ]; then compose_file=docker-compose.yaml; \
 else echo \"docker compose file not found in $(pwd)\" >&2; exit 127; fi; \
-{compose_command} -f \"$compose_file\" {docker_compose_args}"
+{prefix}{compose_command} -f \"$compose_file\" {docker_compose_args}"
     )
-}
-
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
 
 fn render_remote_output(stdout: &str, stderr: &str) -> String {
@@ -414,7 +432,7 @@ fn collapse_carriage_returns(s: &str) -> String {
     // Make Windows newlines consistent first.
     let s = s.replace("\r\n", "\n");
     s.split('\n')
-        .map(|line| line.split('\r').last().unwrap_or_default())
+        .map(|line| line.split('\r').next_back().unwrap_or_default())
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -473,5 +491,29 @@ fn terminate_process_group(child: &Child, signal: &str) {
                 signal, pid, err
             ),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ComposeCommandKind, docker_compose_shell_command};
+    use std::collections::BTreeMap;
+    use std::path::Path;
+
+    #[test]
+    fn docker_compose_shell_command_prefixes_env_exports() {
+        let command = docker_compose_shell_command(
+            ComposeCommandKind::DockerComposePlugin,
+            Path::new("/tmp/app"),
+            &BTreeMap::from([
+                ("IMAGE_TAG".into(), "v1".into()),
+                ("INS_NODE_NAME".into(), "node-a".into()),
+            ]),
+            "config -q",
+        );
+
+        assert!(command.contains("IMAGE_TAG='v1'"));
+        assert!(command.contains("INS_NODE_NAME='node-a'"));
+        assert!(command.contains("docker compose -f \"$compose_file\" config -q"));
     }
 }

@@ -22,9 +22,11 @@ async fn load_app_record_parses_template_yaml() -> anyhow::Result<()> {
     let record = load_app_record(&qa_file).await?;
 
     assert_eq!(record.name, "<name>");
+    assert_eq!(record.version.as_deref(), Some("<version>"));
     assert_eq!(record.description.as_deref(), Some("<description>"));
     assert_eq!(record.author_name.as_deref(), Some("<author_name>"));
     assert_eq!(record.author_email.as_deref(), Some("<author_email>"));
+    assert!(record.dependencies.is_empty());
     assert_eq!(record.before.shell.as_deref(), Some("bash"));
     assert_eq!(record.before.script.as_deref(), Some("./before.sh"));
     assert_eq!(record.after.shell.as_deref(), Some("bash"));
@@ -54,6 +56,9 @@ async fn load_app_record_parses_value_and_default_fields() -> anyhow::Result<()>
     let qa_file = test_dir.join("qa.yaml");
     let qa = r#"
 name: demo
+version: 1.2.3
+dependencies:
+  - redis
 values:
   - name: replicas
     type: number
@@ -68,6 +73,8 @@ values:
 
     let record = load_app_record(&qa_file).await?;
 
+    assert_eq!(record.version.as_deref(), Some("1.2.3"));
+    assert_eq!(record.dependencies, vec!["redis"]);
     assert_eq!(record.values.len(), 2);
     assert_eq!(record.values[0].default, Some(json!(3)));
     assert_eq!(record.values[1].value, Some(json!(true)));
@@ -98,6 +105,26 @@ async fn load_app_record_collects_sibling_files_and_directories() -> anyhow::Res
     assert_eq!(files[1].name, "scripts");
     assert_eq!(files[1].path, child_dir.display().to_string());
     assert!(files[1].is_dir);
+
+    fs::remove_dir_all(&test_dir).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn load_app_record_defaults_dependencies_to_empty() -> anyhow::Result<()> {
+    let test_dir = unique_test_dir("parse-dependencies-empty");
+    let qa_file = test_dir.join("qa.yaml");
+    let qa = r#"
+name: demo
+values: []
+"#;
+
+    fs::create_dir_all(&test_dir).await?;
+    fs::write(&qa_file, qa.trim_start()).await?;
+
+    let record = load_app_record(&qa_file).await?;
+
+    assert!(record.dependencies.is_empty());
 
     fs::remove_dir_all(&test_dir).await?;
     Ok(())

@@ -4,6 +4,7 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use inquire::{Confirm, MultiSelect, Select, Text};
 use minijinja::{Environment, UndefinedBehavior, context};
 use serde_json::{Map, Value};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use tokio::fs;
 use tokio::task::JoinSet;
@@ -11,6 +12,7 @@ use tokio::task::JoinSet;
 use crate::app::parse::load_app_record;
 use crate::app::types::{AppRecord, AppValue};
 use crate::cli::node::nodes_file;
+use crate::env::build_provider_envs;
 use crate::file::local::LocalFile;
 use crate::file::remote::RemoteFile;
 use crate::file::{FileTrait, ProgressFn};
@@ -19,7 +21,8 @@ use crate::node::types::NodeRecord;
 use crate::provider::docker_compose::DockerComposeProvider;
 use crate::provider::{DeploymentTarget, ProviderContext, ProviderTrait};
 use crate::store::duck::{
-    StoredDeploymentRecord, load_latest_deployment_record, save_deployment_record,
+    StoredDeploymentRecord, load_installed_service_configs, load_latest_deployment_record,
+    save_deployment_record,
 };
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
@@ -72,7 +75,7 @@ pub async fn prepare_deployment(
     requested_node: Option<String>,
     requested_apps: Option<Vec<String>>,
 ) -> anyhow::Result<PreparedDeployment> {
-    let nodes = load_all_nodes(&nodes_file(&home.to_path_buf())).await?;
+    let nodes = load_all_nodes(&nodes_file(home)).await?;
     let node = select_node(&nodes, requested_node.as_deref())?;
     let app_home = home.join("app");
     let app_names = resolve_apps(requested_apps, &app_home).await?;
@@ -133,9 +136,14 @@ pub async fn execute_pipeline(
 
     let provider_ctx = ProviderContext::new(
         prepared.provider.clone(),
-        prepared.node,
-        prepared.targets,
+        prepared.node.clone(),
+        prepared.targets.clone(),
         prepared.workspace,
+        build_provider_envs(
+            &prepared.targets,
+            &prepared.node,
+            &load_installed_service_configs(home).await?,
+        )?,
     );
 
     match mode {
@@ -157,10 +165,10 @@ pub fn select_node(nodes: &[NodeRecord], requested: Option<&str>) -> anyhow::Res
         return Err(anyhow!("no nodes found, please add a node first"));
     }
 
-    if let Some(name) = requested {
-        if let Some(node) = nodes.iter().find(|node| node_name(node) == name) {
-            return Ok(node.clone());
-        }
+    if let Some(name) = requested
+        && let Some(node) = nodes.iter().find(|node| node_name(node) == name)
+    {
+        return Ok(node.clone());
     }
 
     let options: Vec<String> = nodes.iter().map(node_label).collect();
@@ -350,7 +358,7 @@ pub(crate) fn app_choice_label(app: &AppRecord) -> String {
     if let Some(author) = author_display(app) {
         parts.push(author);
     }
-    parts.join(" | ")
+    parts.join(" - ")
 }
 
 fn author_display(app: &AppRecord) -> Option<String> {
@@ -526,24 +534,24 @@ fn resolve_service_name(
     app: &AppRecord,
     preset: Option<&StoredDeploymentRecord>,
 ) -> anyhow::Result<String> {
-    if let Some(preset) = preset {
-        if std::io::stdin().is_terminal() {
-            let options = vec![
-                format!("Use previous service ({})", preset.service),
-                format!("Use app name ({})", app.name),
-                "Enter service name manually".to_string(),
-            ];
-            let answer = Select::new(
-                &format!("Service name for app '{}'", app.name),
-                options.clone(),
-            )
-            .prompt()?;
-            if answer == options[0] {
-                return Ok(preset.service.clone());
-            }
-            if answer == options[1] {
-                return Ok(app.name.clone());
-            }
+    if let Some(preset) = preset
+        && std::io::stdin().is_terminal()
+    {
+        let options = vec![
+            format!("Use previous service ({})", preset.service),
+            format!("Use app name ({})", app.name),
+            "Enter service name manually".to_string(),
+        ];
+        let answer = Select::new(
+            &format!("Service name for app '{}'", app.name),
+            options.clone(),
+        )
+        .prompt()?;
+        if answer == options[0] {
+            return Ok(preset.service.clone());
+        }
+        if answer == options[1] {
+            return Ok(app.name.clone());
         }
     }
 
@@ -743,6 +751,8 @@ async fn copy_file_to_workspace(
             .await
             .map_err(|e| anyhow!("read template {}: {}", job.source_path.display(), e))?;
         let rendered = render_template(&source, template_values)?;
+        let rendered =
+            maybe_inject_compose_labels(&job.target_path, &rendered, template_values, node)?;
         let rendered_size = rendered.len() as u64;
         if let Some(progress) = progress.as_ref() {
             progress.begin_write_phase(rendered_size);
@@ -775,6 +785,30 @@ async fn copy_file_to_workspace(
         .read_bytes(&job.source_path, None)
         .await
         .map_err(|e| anyhow!("read source file {}: {}", job.source_path.display(), e))?;
+    if is_docker_compose_file(&job.target_path) {
+        let source = String::from_utf8(source_bytes).map_err(|e| {
+            anyhow!(
+                "read compose file {} as utf-8: {}",
+                job.source_path.display(),
+                e
+            )
+        })?;
+        let rendered =
+            maybe_inject_compose_labels(&job.target_path, &source, template_values, node)?;
+        let rendered_size = rendered.len() as u64;
+        if let Some(progress) = progress.as_ref() {
+            progress.begin_write_phase(rendered_size);
+        }
+        let progress_write = progress.as_ref().map(|progress| progress.write_progress());
+        target_file
+            .write(&job.target_path, &rendered, progress_write.as_ref())
+            .await
+            .map_err(|e| anyhow!("write compose file {}: {}", job.target_path.display(), e))?;
+        if let Some(progress) = progress.as_ref() {
+            progress.finish_file();
+        }
+        return Ok(());
+    }
     if let Some(progress) = progress.as_ref() {
         progress.begin_write_phase(source_size);
     }
@@ -794,6 +828,131 @@ async fn copy_file_to_workspace(
         progress.finish_file();
     }
     Ok(())
+}
+
+fn is_docker_compose_file(path: &Path) -> bool {
+    matches!(
+        path.file_name().and_then(|name| name.to_str()),
+        Some("docker-compose.yml" | "docker-compose.yaml")
+    )
+}
+
+fn maybe_inject_compose_labels(
+    path: &Path,
+    content: &str,
+    template_values: &serde_json::Value,
+    node: &NodeRecord,
+) -> anyhow::Result<String> {
+    if !is_docker_compose_file(path) {
+        return Ok(content.to_string());
+    }
+
+    inject_compose_labels(
+        content,
+        &build_compose_metadata_labels(template_values, node),
+    )
+}
+
+fn inject_compose_labels(
+    content: &str,
+    metadata_labels: &BTreeMap<String, String>,
+) -> anyhow::Result<String> {
+    let mut document: serde_yaml::Value =
+        serde_yaml::from_str(content).map_err(|e| anyhow!("parse compose yaml: {}", e))?;
+
+    let Some(root) = document.as_mapping_mut() else {
+        return Ok(content.to_string());
+    };
+    let Some(services) = root
+        .get_mut(serde_yaml::Value::String("services".into()))
+        .and_then(serde_yaml::Value::as_mapping_mut)
+    else {
+        return Ok(content.to_string());
+    };
+
+    for service in services.values_mut() {
+        let Some(service_mapping) = service.as_mapping_mut() else {
+            continue;
+        };
+        let labels_key = serde_yaml::Value::String("labels".into());
+        let existing = service_mapping.remove(&labels_key);
+        let mut labels = labels_value_to_mapping(existing)?;
+
+        for (key, value) in metadata_labels {
+            labels.insert(
+                serde_yaml::Value::String(key.clone()),
+                serde_yaml::Value::String(value.clone()),
+            );
+        }
+
+        service_mapping.insert(labels_key, serde_yaml::Value::Mapping(labels));
+    }
+
+    serde_yaml::to_string(&document).map_err(|e| anyhow!("serialize compose yaml: {}", e))
+}
+
+fn labels_value_to_mapping(
+    value: Option<serde_yaml::Value>,
+) -> anyhow::Result<serde_yaml::Mapping> {
+    let mut mapping = serde_yaml::Mapping::new();
+    let Some(value) = value else {
+        return Ok(mapping);
+    };
+
+    match value {
+        serde_yaml::Value::Null => Ok(mapping),
+        serde_yaml::Value::Mapping(existing) => Ok(existing),
+        serde_yaml::Value::Sequence(items) => {
+            for item in items {
+                let Some(text) = item.as_str() else {
+                    return Err(anyhow!("compose labels sequence entries must be strings"));
+                };
+                let (key, value) = text.split_once('=').unwrap_or((text, ""));
+                mapping.insert(
+                    serde_yaml::Value::String(key.to_string()),
+                    serde_yaml::Value::String(value.to_string()),
+                );
+            }
+            Ok(mapping)
+        }
+        _ => Err(anyhow!("compose labels must be a mapping or sequence")),
+    }
+}
+
+pub(crate) fn build_compose_metadata_labels(
+    template_values: &serde_json::Value,
+    node: &NodeRecord,
+) -> BTreeMap<String, String> {
+    let mut labels = BTreeMap::new();
+    labels.insert("ins.node_name".into(), node_name(node).to_string());
+
+    if let Some(app) = template_values.get("app") {
+        insert_compose_label(&mut labels, "ins.name", app.get("name"));
+        insert_compose_label(&mut labels, "ins.description", app.get("description"));
+        insert_compose_label(&mut labels, "ins.author_name", app.get("author_name"));
+        insert_compose_label(&mut labels, "ins.author_email", app.get("author_email"));
+        insert_compose_label(&mut labels, "ins.version", app.get("version"));
+    }
+
+    labels
+}
+
+fn insert_compose_label(
+    labels: &mut BTreeMap<String, String>,
+    key: &str,
+    value: Option<&serde_json::Value>,
+) {
+    let Some(value) = value else {
+        return;
+    };
+    if value.is_null() {
+        return;
+    }
+    let text = value
+        .as_str()
+        .map(ToString::to_string)
+        .unwrap_or_else(|| value.to_string());
+    labels.insert(key.to_string(), text);
 }
 
 #[derive(Clone, Debug)]

@@ -41,6 +41,28 @@ cargo clippy --all-targets --all-features
 cargo build --release --features duckdb-bundled
 ```
 
+## CI/CD
+
+- Push and pull request validation runs `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --features duckdb-bundled`, and `cross build --release --features duckdb-bundled` for Linux, macOS, and Windows targets.
+- Pushing a `v*` tag creates a GitHub Release and uploads archives for:
+  - `x86_64-apple-darwin`
+  - `aarch64-apple-darwin`
+  - `x86_64-pc-windows-gnu`
+  - `aarch64-pc-windows-gnullvm`
+  - `x86_64-unknown-linux-gnu`
+  - `aarch64-unknown-linux-gnu`
+  - `x86_64-unknown-linux-musl`
+  - `aarch64-unknown-linux-musl`
+- Linux and Windows targets use `cross` default images directly.
+- macOS `cross` builds are disabled by default. To enable them, set repository variables:
+  - `CROSS_MACOS_ENABLED=true`
+  - `CROSS_TARGET_X86_64_APPLE_DARWIN_IMAGE`
+  - `CROSS_TARGET_AARCH64_APPLE_DARWIN_IMAGE`
+- Those macOS images must be your own `cross`-compatible images containing a valid Apple SDK.
+- Release jobs verify that the pushed `v*` tag matches `Cargo.toml`'s `version`.
+- Each release archive is uploaded with a matching `.sha256` checksum file.
+- The published GitHub Release also includes a combined `checksums.txt`.
+
 ## CLI Overview
 
 ### Inspect commands

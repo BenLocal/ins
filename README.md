@@ -47,6 +47,8 @@ cargo build --release --features duckdb-bundled
 
 ```bash
 ins --help
+ins template init --name nginx
+ins version
 ins app list
 ins node list
 ```
@@ -78,6 +80,8 @@ ins deploy \
 ## App Templates
 
 Each app lives under `.ins/app/<app>/` and should include `qa.yaml`. Template files such as `docker-compose.yaml.j2` or `nginx.conf.j2` are rendered into the target workspace directory. Normal files are copied as-is.
+
+Use `ins template init --name <app>` to scaffold a new app template with `qa.yaml`, `before.sh`, and `after.sh` under `.ins/app/<app>/`.
 
 During `check` and `deploy`, the CLI can:
 

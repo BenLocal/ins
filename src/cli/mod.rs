@@ -3,6 +3,8 @@ pub mod check;
 pub mod deploy;
 pub mod node;
 pub mod service;
+pub mod template;
+pub mod version;
 
 use std::path::PathBuf;
 

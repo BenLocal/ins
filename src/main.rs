@@ -3,7 +3,7 @@ use std::{env, fs, path::PathBuf};
 
 use crate::cli::{
     CommandContext, CommandTrait, app::AppCommand, check::CheckCommand, deploy::DeployCommand,
-    node::NodeCommand, service::ServiceCommand,
+    node::NodeCommand, service::ServiceCommand, template::TemplateCommand, version::VersionCommand,
 };
 
 mod app;
@@ -13,6 +13,7 @@ mod node;
 mod pipeline;
 mod provider;
 mod store;
+mod version;
 
 #[tokio::main]
 async fn main() {
@@ -32,6 +33,8 @@ async fn main() {
         Some(Command::Node(args)) => NodeCommand::run(args, CommandContext { home }).await,
         Some(Command::App(args)) => AppCommand::run(args, CommandContext { home }).await,
         Some(Command::Service(args)) => ServiceCommand::run(args, CommandContext { home }).await,
+        Some(Command::Template(args)) => TemplateCommand::run(args, CommandContext { home }).await,
+        Some(Command::Version(args)) => VersionCommand::run(args, CommandContext { home }).await,
         None => {
             InsCli::command().print_help().expect("print help");
             println!();
@@ -89,4 +92,8 @@ enum Command {
     App(cli::app::AppArgs),
     /// List installed services.
     Service(cli::service::ServiceArgs),
+    /// Manage app templates.
+    Template(cli::template::TemplateArgs),
+    /// Show version, tag, and git commit information.
+    Version(cli::version::VersionArgs),
 }

@@ -148,6 +148,7 @@ pub async fn execute_pipeline(
 
     match mode {
         PipelineMode::Check => {
+            print_provider_envs(&provider_ctx.envs);
             println!("Validating with provider...");
             provider.validate(provider_ctx).await?;
             println!("Check completed.");
@@ -158,6 +159,33 @@ pub async fn execute_pipeline(
             provider.run(provider_ctx).await
         }
     }
+}
+
+fn print_provider_envs(envs: &BTreeMap<String, BTreeMap<String, String>>) {
+    println!("{}", format_provider_envs(envs));
+}
+
+fn format_provider_envs(envs: &BTreeMap<String, BTreeMap<String, String>>) -> String {
+    let mut lines = vec!["Provider Environment Variables:".to_string()];
+
+    if envs.is_empty() {
+        lines.push("  (none)".to_string());
+        return lines.join("\n");
+    }
+
+    for (service, service_envs) in envs {
+        lines.push(format!("  [{service}]"));
+        if service_envs.is_empty() {
+            lines.push("    (none)".to_string());
+            continue;
+        }
+
+        for (key, value) in service_envs {
+            lines.push(format!("    {key}={value}"));
+        }
+    }
+
+    lines.join("\n")
 }
 
 pub fn select_node(nodes: &[NodeRecord], requested: Option<&str>) -> anyhow::Result<NodeRecord> {
@@ -916,6 +944,42 @@ fn labels_value_to_mapping(
             Ok(mapping)
         }
         _ => Err(anyhow!("compose labels must be a mapping or sequence")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_provider_envs;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn format_provider_envs_lists_services_and_values_in_order() {
+        let envs = BTreeMap::from([
+            (
+                "api".to_string(),
+                BTreeMap::from([
+                    ("INS_APP_NAME".to_string(), "backend".to_string()),
+                    ("INS_NODE_NAME".to_string(), "local".to_string()),
+                ]),
+            ),
+            (
+                "worker".to_string(),
+                BTreeMap::from([("INS_APP_NAME".to_string(), "jobs".to_string())]),
+            ),
+        ]);
+
+        let output = format_provider_envs(&envs);
+
+        assert_eq!(
+            output,
+            "Provider Environment Variables:\n  [api]\n    INS_APP_NAME=backend\n    INS_NODE_NAME=local\n  [worker]\n    INS_APP_NAME=jobs"
+        );
+    }
+
+    #[test]
+    fn format_provider_envs_handles_empty_maps() {
+        let output = format_provider_envs(&BTreeMap::new());
+        assert_eq!(output, "Provider Environment Variables:\n  (none)");
     }
 }
 

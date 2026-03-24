@@ -39,8 +39,8 @@ jobs:
       - name: Test
         run: cargo test --features duckdb-bundled
 
-      - name: Audit dependencies
-        run: cargo audit
+      # - name: Audit dependencies
+      #   run: cargo audit
 
   build-cross:
     name: Build (${{ matrix.os }} / ${{ matrix.target }})

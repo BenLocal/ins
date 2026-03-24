@@ -10,7 +10,8 @@ description: <description>
 author_name: <author_name>
 author_email: <author_email>
 # Dependency service names, injected into provider env when installed
-dependencies: []
+dependencies:
+  - service_name
 # Before script
 before:
   shell: bash

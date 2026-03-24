@@ -86,7 +86,7 @@ fn append_installed_service_envs(
             format!("{prefix}_CREATED_AT_MS"),
             service.created_at_ms.to_string(),
         );
-        envs.insert(format!("{prefix}_QA_YAML"), service.qa_yaml.clone());
+        //envs.insert(format!("{prefix}_QA_YAML"), service.qa_yaml.clone());
 
         for (name, value) in &service.app_values {
             envs.insert(

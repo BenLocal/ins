@@ -2,6 +2,9 @@ name: nginx
 description: Nginx server
 author_name: aaa
 author_email: aa@example.com
+version: 1.0.0
+dependencies:
+  - a
 values:
   - name: port
     type: number
@@ -10,4 +13,4 @@ values:
   - name: outbound_port
     type: number
     description: Outbound port to listen on
-    default: 80
+    default: 3480

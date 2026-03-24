@@ -17,10 +17,10 @@
                 ]
             },
             "args": [
-                "check",
+                "deploy",
                 "--provider=docker-compose",
-                "--node=114",
-                "--workspace=/iflytek/shiben/test/",
+                "--node=local",
+                "--workspace=${workspaceFolder}/workspace/",
                 "nginx",
             ]
         },

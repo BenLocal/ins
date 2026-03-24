@@ -105,6 +105,8 @@ Each app lives under `.ins/app/<app>/` and should include `qa.yaml`. Template fi
 
 Use `ins template init --name <app>` to scaffold a new app template with `qa.yaml`, `before.sh`, and `after.sh` under `.ins/app/<app>/`.
 
+For `qa.yaml` field meanings, dependency env mapping, and usage examples, see [docs/qa-yaml-dependencies-env.md](docs/qa-yaml-dependencies-env.md).
+
 During `check` and `deploy`, the CLI can:
 
 - prompt for service names

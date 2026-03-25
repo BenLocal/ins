@@ -7,6 +7,7 @@ use tokio::fs;
 use crate::cli::{CommandContext, CommandTrait};
 use crate::node::list::{load_all_nodes, load_remote_nodes};
 use crate::node::types::RemoteNodeRecord;
+use crate::output::print_structured_list;
 
 #[derive(clap::Args, Clone, Debug)]
 /// Manage nodes in the cluster.
@@ -87,7 +88,7 @@ impl CommandTrait for NodeCommand {
         match args.command {
             NodeSubcommand::Add(args) => add_node(&nodes_path, args).await,
             NodeSubcommand::Set(args) => set_node(&nodes_path, args).await,
-            NodeSubcommand::List(_args) => list_nodes(&nodes_path).await,
+            NodeSubcommand::List(_args) => list_nodes(&nodes_path, ctx.output).await,
         }
     }
 }
@@ -130,10 +131,9 @@ async fn set_node(nodes_path: &PathBuf, args: NodeSetArgs) -> anyhow::Result<()>
     Ok(())
 }
 
-async fn list_nodes(nodes_path: &Path) -> anyhow::Result<()> {
+async fn list_nodes(nodes_path: &Path, output: crate::OutputFormat) -> anyhow::Result<()> {
     let nodes = load_all_nodes(nodes_path).await?;
-    println!("{}", serde_json::to_string_pretty(&nodes)?);
-    Ok(())
+    print_structured_list(&nodes, output, "no nodes found")
 }
 
 pub(crate) fn nodes_file(home: &Path) -> PathBuf {

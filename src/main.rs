@@ -1,4 +1,4 @@
-use clap::{CommandFactory, Parser};
+use clap::{CommandFactory, Parser, ValueEnum};
 use std::{env as std_env, fs, path::PathBuf};
 
 use crate::cli::{
@@ -11,6 +11,7 @@ mod cli;
 mod env;
 mod file;
 mod node;
+mod output;
 mod pipeline;
 mod provider;
 mod store;
@@ -29,13 +30,76 @@ async fn main() {
     };
 
     let res = match cli.command {
-        Some(Command::Deploy(args)) => DeployCommand::run(args, CommandContext { home }).await,
-        Some(Command::Check(args)) => CheckCommand::run(args, CommandContext { home }).await,
-        Some(Command::Node(args)) => NodeCommand::run(args, CommandContext { home }).await,
-        Some(Command::App(args)) => AppCommand::run(args, CommandContext { home }).await,
-        Some(Command::Service(args)) => ServiceCommand::run(args, CommandContext { home }).await,
-        Some(Command::Template(args)) => TemplateCommand::run(args, CommandContext { home }).await,
-        Some(Command::Version(args)) => VersionCommand::run(args, CommandContext { home }).await,
+        Some(Command::Deploy(args)) => {
+            DeployCommand::run(
+                args,
+                CommandContext {
+                    home,
+                    output: cli.output,
+                },
+            )
+            .await
+        }
+        Some(Command::Check(args)) => {
+            CheckCommand::run(
+                args,
+                CommandContext {
+                    home,
+                    output: cli.output,
+                },
+            )
+            .await
+        }
+        Some(Command::Node(args)) => {
+            NodeCommand::run(
+                args,
+                CommandContext {
+                    home,
+                    output: cli.output,
+                },
+            )
+            .await
+        }
+        Some(Command::App(args)) => {
+            AppCommand::run(
+                args,
+                CommandContext {
+                    home,
+                    output: cli.output,
+                },
+            )
+            .await
+        }
+        Some(Command::Service(args)) => {
+            ServiceCommand::run(
+                args,
+                CommandContext {
+                    home,
+                    output: cli.output,
+                },
+            )
+            .await
+        }
+        Some(Command::Template(args)) => {
+            TemplateCommand::run(
+                args,
+                CommandContext {
+                    home,
+                    output: cli.output,
+                },
+            )
+            .await
+        }
+        Some(Command::Version(args)) => {
+            VersionCommand::run(
+                args,
+                CommandContext {
+                    home,
+                    output: cli.output,
+                },
+            )
+            .await
+        }
         None => {
             InsCli::command().print_help().expect("print help");
             println!();
@@ -77,8 +141,19 @@ struct InsCli {
     #[arg(long, global = true, default_value_os_t = default_home_dir())]
     home: PathBuf,
 
+    /// Output format for structured command results.
+    #[arg(long, global = true, value_enum, default_value_t = OutputFormat::Table)]
+    output: OutputFormat,
+
     #[command(subcommand)]
     command: Option<Command>,
+}
+
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, ValueEnum)]
+pub enum OutputFormat {
+    Json,
+    #[default]
+    Table,
 }
 
 #[derive(clap::Subcommand)]

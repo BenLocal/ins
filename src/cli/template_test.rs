@@ -6,6 +6,7 @@ use std::{
 
 use tokio::fs;
 
+use crate::OutputFormat;
 use crate::cli::{
     CommandContext, CommandTrait,
     template::{TemplateArgs, TemplateCommand, TemplateInitArgs, TemplateSubcommand},
@@ -21,7 +22,10 @@ async fn template_init_creates_app_template_files() -> anyhow::Result<()> {
                 name: "demo".into(),
             }),
         },
-        CommandContext { home: home.clone() },
+        CommandContext {
+            home: home.clone(),
+            output: OutputFormat::Table,
+        },
     )
     .await?;
 
@@ -50,7 +54,10 @@ async fn template_init_rejects_existing_app_template() -> anyhow::Result<()> {
                 name: "demo".into(),
             }),
         },
-        CommandContext { home: home.clone() },
+        CommandContext {
+            home: home.clone(),
+            output: OutputFormat::Table,
+        },
     )
     .await
     .expect_err("existing template should fail");

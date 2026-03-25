@@ -10,9 +10,12 @@ use std::path::PathBuf;
 
 use async_trait::async_trait;
 
+use crate::OutputFormat;
+
 #[derive(Clone, Debug)]
 pub struct CommandContext {
     pub home: PathBuf,
+    pub output: OutputFormat,
 }
 
 #[async_trait]

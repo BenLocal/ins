@@ -6,6 +6,7 @@ use tokio::fs;
 
 use crate::app::parse::load_app_record;
 use crate::cli::{CommandContext, CommandTrait};
+use crate::output::print_structured_list;
 
 #[derive(clap::Args, Clone, Debug)]
 /// Manage applications in the cluster.
@@ -47,13 +48,13 @@ impl CommandTrait for AppCommand {
             .with_context(|| format!("create app home {}", app_home.display()))?;
 
         match args.command {
-            AppSubcommand::List(_args) => list_apps(&app_home).await,
+            AppSubcommand::List(_args) => list_apps(&app_home, ctx.output).await,
             AppSubcommand::Inspect(args) => inspect_app(&app_home, args).await,
         }
     }
 }
 
-async fn list_apps(app_home: &Path) -> anyhow::Result<()> {
+async fn list_apps(app_home: &Path, output: crate::OutputFormat) -> anyhow::Result<()> {
     let mut entries = fs::read_dir(app_home)
         .await
         .with_context(|| format!("read app home {}", app_home.display()))?;
@@ -88,13 +89,7 @@ async fn list_apps(app_home: &Path) -> anyhow::Result<()> {
 
     apps.sort_by(|left, right| left.name.cmp(&right.name));
 
-    if apps.is_empty() {
-        println!("no apps found");
-        return Ok(());
-    }
-
-    println!("{}", serde_json::to_string_pretty(&apps)?);
-    Ok(())
+    print_structured_list(&apps, output, "no apps found")
 }
 
 async fn inspect_app(app_home: &Path, args: AppInspectArgs) -> anyhow::Result<()> {

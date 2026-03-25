@@ -26,7 +26,7 @@ async fn load_app_record_parses_template_yaml() -> anyhow::Result<()> {
     assert_eq!(record.description.as_deref(), Some("<description>"));
     assert_eq!(record.author_name.as_deref(), Some("<author_name>"));
     assert_eq!(record.author_email.as_deref(), Some("<author_email>"));
-    assert!(record.dependencies.is_empty());
+    assert_eq!(record.dependencies, vec!["service_name"]);
     assert_eq!(record.before.shell.as_deref(), Some("bash"));
     assert_eq!(record.before.script.as_deref(), Some("./before.sh"));
     assert_eq!(record.after.shell.as_deref(), Some("bash"));

@@ -36,7 +36,6 @@ pub struct InstalledServiceConfigRecord {
     pub node_name: String,
     pub workspace: String,
     pub app_values: HashMap<String, Value>,
-    pub qa_yaml: String,
     pub created_at_ms: i64,
 }
 
@@ -219,7 +218,7 @@ fn load_installed_service_configs_sync(
 
     let mut stmt = conn
         .prepare(
-            "SELECT service, app_name, node_name, workspace, app_values_json, qa_yaml, created_at_ms
+            "SELECT service, app_name, node_name, workspace, app_values_json, created_at_ms
              FROM (
                  SELECT
                      service,
@@ -227,7 +226,6 @@ fn load_installed_service_configs_sync(
                      node_name,
                      workspace,
                      app_values_json,
-                     qa_yaml,
                      created_at_ms,
                      ROW_NUMBER() OVER (
                          PARTITION BY service
@@ -253,8 +251,7 @@ fn load_installed_service_configs_sync(
             node_name: row.get(2).context("read node_name")?,
             workspace: row.get(3).context("read workspace")?,
             app_values,
-            qa_yaml: row.get(5).context("read qa_yaml")?,
-            created_at_ms: row.get(6).context("read created_at_ms")?,
+            created_at_ms: row.get(5).context("read created_at_ms")?,
         });
     }
 
@@ -412,7 +409,6 @@ mod tests {
             services[0].app_values.get("image"),
             Some(&json!("caddy:1.0"))
         );
-        assert_eq!(services[0].qa_yaml, "name: caddy\n");
 
         std::fs::remove_dir_all(&home)?;
         Ok(())

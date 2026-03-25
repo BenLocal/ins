@@ -213,7 +213,6 @@ mod tests {
                 app_values: BTreeMap::from([(String::from("port"), json!(6379))])
                     .into_iter()
                     .collect(),
-                qa_yaml: "name: redis\n".into(),
                 created_at_ms: 1,
             },
             InstalledServiceConfigRecord {
@@ -224,7 +223,6 @@ mod tests {
                 app_values: BTreeMap::from([(String::from("port"), json!(3306))])
                     .into_iter()
                     .collect(),
-                qa_yaml: "name: mysql\n".into(),
                 created_at_ms: 2,
             },
         ];

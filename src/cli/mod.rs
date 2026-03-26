@@ -4,6 +4,7 @@ pub mod deploy;
 pub mod node;
 pub mod service;
 pub mod template;
+pub mod tui;
 pub mod version;
 
 use std::path::PathBuf;

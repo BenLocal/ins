@@ -93,7 +93,13 @@ impl CommandTrait for NodeCommand {
     }
 }
 
-async fn add_node(nodes_path: &PathBuf, args: NodeAddArgs) -> anyhow::Result<()> {
+async fn add_node(nodes_path: &Path, args: NodeAddArgs) -> anyhow::Result<()> {
+    add_node_record(nodes_path, args).await?;
+    println!("node add");
+    Ok(())
+}
+
+pub(crate) async fn add_node_record(nodes_path: &Path, args: NodeAddArgs) -> anyhow::Result<()> {
     let mut nodes = load_remote_nodes(nodes_path).await?;
 
     if nodes.iter().any(|node| node.name == args.name) {
@@ -110,11 +116,16 @@ async fn add_node(nodes_path: &PathBuf, args: NodeAddArgs) -> anyhow::Result<()>
     });
 
     save_nodes(nodes_path, &nodes).await?;
-    println!("node add");
     Ok(())
 }
 
-async fn set_node(nodes_path: &PathBuf, args: NodeSetArgs) -> anyhow::Result<()> {
+async fn set_node(nodes_path: &Path, args: NodeSetArgs) -> anyhow::Result<()> {
+    set_node_record(nodes_path, args).await?;
+    println!("node set");
+    Ok(())
+}
+
+pub(crate) async fn set_node_record(nodes_path: &Path, args: NodeSetArgs) -> anyhow::Result<()> {
     let mut nodes = load_remote_nodes(nodes_path).await?;
     let Some(node) = nodes.iter_mut().find(|node| node.name == args.name) else {
         bail!("node '{}' not found", args.name);
@@ -127,12 +138,24 @@ async fn set_node(nodes_path: &PathBuf, args: NodeSetArgs) -> anyhow::Result<()>
     node.key_path = args.key_path;
 
     save_nodes(nodes_path, &nodes).await?;
-    println!("node set");
+    Ok(())
+}
+
+pub(crate) async fn delete_node_record(nodes_path: &Path, name: &str) -> anyhow::Result<()> {
+    let mut nodes = load_remote_nodes(nodes_path).await?;
+    let original_len = nodes.len();
+    nodes.retain(|node| node.name != name);
+
+    if nodes.len() == original_len {
+        bail!("node '{}' not found", name);
+    }
+
+    save_nodes(nodes_path, &nodes).await?;
     Ok(())
 }
 
 async fn list_nodes(nodes_path: &Path, output: crate::OutputFormat) -> anyhow::Result<()> {
-    let nodes = load_all_nodes(nodes_path).await?;
+    let nodes = list_node_records(nodes_path).await?;
     print_structured_list(&nodes, output, "no nodes found")
 }
 
@@ -140,7 +163,13 @@ pub(crate) fn nodes_file(home: &Path) -> PathBuf {
     home.join("nodes.json")
 }
 
-async fn save_nodes(nodes_path: &PathBuf, nodes: &[RemoteNodeRecord]) -> anyhow::Result<()> {
+pub(crate) async fn list_node_records(
+    nodes_path: &Path,
+) -> anyhow::Result<Vec<crate::node::types::NodeRecord>> {
+    load_all_nodes(nodes_path).await
+}
+
+async fn save_nodes(nodes_path: &Path, nodes: &[RemoteNodeRecord]) -> anyhow::Result<()> {
     let content = serde_json::to_string_pretty(nodes)?;
     fs::write(nodes_path, format!("{content}\n"))
         .await

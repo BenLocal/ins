@@ -36,8 +36,14 @@ impl CommandTrait for ServiceCommand {
 }
 
 async fn list_services(home: &std::path::Path, output: crate::OutputFormat) -> anyhow::Result<()> {
-    let services = list_installed_services(home)
-        .await
-        .with_context(|| format!("list installed services from {}", home.display()))?;
+    let services = list_service_records(home).await?;
     print_structured_list(&services, output, "no services found")
+}
+
+pub(crate) async fn list_service_records(
+    home: &std::path::Path,
+) -> anyhow::Result<Vec<crate::store::duck::InstalledServiceRecord>> {
+    list_installed_services(home)
+        .await
+        .with_context(|| format!("list installed services from {}", home.display()))
 }

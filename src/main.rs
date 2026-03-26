@@ -3,7 +3,8 @@ use std::{env as std_env, fs, path::PathBuf};
 
 use crate::cli::{
     CommandContext, CommandTrait, app::AppCommand, check::CheckCommand, deploy::DeployCommand,
-    node::NodeCommand, service::ServiceCommand, template::TemplateCommand, version::VersionCommand,
+    node::NodeCommand, service::ServiceCommand, template::TemplateCommand, tui::TuiCommand,
+    version::VersionCommand,
 };
 
 mod app;
@@ -15,6 +16,7 @@ mod output;
 mod pipeline;
 mod provider;
 mod store;
+mod tui;
 mod version;
 
 #[tokio::main]
@@ -82,6 +84,16 @@ async fn main() {
         }
         Some(Command::Template(args)) => {
             TemplateCommand::run(
+                args,
+                CommandContext {
+                    home,
+                    output: cli.output,
+                },
+            )
+            .await
+        }
+        Some(Command::Tui(args)) => {
+            TuiCommand::run(
                 args,
                 CommandContext {
                     home,
@@ -170,6 +182,20 @@ enum Command {
     Service(cli::service::ServiceArgs),
     /// Manage app templates.
     Template(cli::template::TemplateArgs),
+    /// Launch the interactive terminal UI.
+    Tui(cli::tui::TuiArgs),
     /// Show version, tag, and git commit information.
     Version(cli::version::VersionArgs),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Command, InsCli};
+    use clap::Parser;
+
+    #[test]
+    fn tui_command_parses_from_cli() {
+        let cli = InsCli::try_parse_from(["ins", "tui"]).expect("tui command should parse");
+        assert!(matches!(cli.command, Some(Command::Tui(_))));
+    }
 }

@@ -55,6 +55,30 @@ impl CommandTrait for AppCommand {
 }
 
 async fn list_apps(app_home: &Path, output: crate::OutputFormat) -> anyhow::Result<()> {
+    let apps = list_app_records(app_home).await?;
+    print_structured_list(&apps, output, "no apps found")
+}
+
+async fn inspect_app(app_home: &Path, args: AppInspectArgs) -> anyhow::Result<()> {
+    let content = inspect_app_content(app_home, &args.name).await?;
+    print!("{content}");
+    Ok(())
+}
+
+fn qa_file(app_dir: &Path) -> PathBuf {
+    app_dir.join("qa.yaml")
+}
+
+fn validate_app_name(name: &str) -> anyhow::Result<()> {
+    if name.is_empty() || name.contains('/') || name.contains("..") {
+        bail!("invalid app name '{}'", name);
+    }
+    Ok(())
+}
+
+pub(crate) async fn list_app_records(
+    app_home: &Path,
+) -> anyhow::Result<Vec<crate::app::types::AppRecord>> {
     let mut entries = fs::read_dir(app_home)
         .await
         .with_context(|| format!("read app home {}", app_home.display()))?;
@@ -88,28 +112,14 @@ async fn list_apps(app_home: &Path, output: crate::OutputFormat) -> anyhow::Resu
     }
 
     apps.sort_by(|left, right| left.name.cmp(&right.name));
-
-    print_structured_list(&apps, output, "no apps found")
+    Ok(apps)
 }
 
-async fn inspect_app(app_home: &Path, args: AppInspectArgs) -> anyhow::Result<()> {
-    validate_app_name(&args.name)?;
+pub(crate) async fn inspect_app_content(app_home: &Path, name: &str) -> anyhow::Result<String> {
+    validate_app_name(name)?;
 
-    let qa_file = qa_file(&app_home.join(&args.name));
-    let content = fs::read_to_string(&qa_file)
+    let qa_file = qa_file(&app_home.join(name));
+    fs::read_to_string(&qa_file)
         .await
-        .with_context(|| format!("read app file {}", qa_file.display()))?;
-    print!("{content}");
-    Ok(())
-}
-
-fn qa_file(app_dir: &Path) -> PathBuf {
-    app_dir.join("qa.yaml")
-}
-
-fn validate_app_name(name: &str) -> anyhow::Result<()> {
-    if name.is_empty() || name.contains('/') || name.contains("..") {
-        bail!("invalid app name '{}'", name);
-    }
-    Ok(())
+        .with_context(|| format!("read app file {}", qa_file.display()))
 }

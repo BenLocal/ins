@@ -651,7 +651,9 @@ fn should_reuse_stored_settings(
 
 pub fn apply_stored_values(app: &mut AppRecord, preset: &StoredDeploymentRecord) {
     for value in &mut app.values {
-        if let Some(stored) = preset.app_values.get(&value.name) {
+        if value.value.is_none()
+            && let Some(stored) = preset.app_values.get(&value.name)
+        {
             value.value = Some(stored.clone());
         }
     }

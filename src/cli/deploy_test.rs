@@ -614,6 +614,39 @@ fn apply_stored_values_overrides_matching_app_values() {
 }
 
 #[test]
+fn apply_stored_values_does_not_override_existing_cli_values() {
+    let mut app = AppRecord {
+        name: "alpha".into(),
+        version: None,
+        description: None,
+        author_name: None,
+        author_email: None,
+        dependencies: vec![],
+        before: ScriptHook::default(),
+        after: ScriptHook::default(),
+        files: None,
+        values: vec![AppValue {
+            name: "outbound_port".into(),
+            value_type: "number".into(),
+            description: None,
+            value: Some(json!(1456)),
+            default: Some(json!(3480)),
+            options: vec![],
+        }],
+    };
+    let preset = StoredDeploymentRecord {
+        service: "frontend".into(),
+        app_values: HashMap::from([(String::from("outbound_port"), json!(3480))]),
+        qa_yaml: String::new(),
+        created_at_ms: 1,
+    };
+
+    apply_stored_values(&mut app, &preset);
+
+    assert_eq!(app.values[0].value, Some(json!(1456)));
+}
+
+#[test]
 fn parse_number_value_keeps_integer_without_decimal_suffix() {
     assert_eq!(parse_number_value("70", "port").unwrap(), json!(70));
     assert_eq!(parse_number_value("70.5", "port").unwrap(), json!(70.5));

@@ -25,6 +25,7 @@ impl CommandTrait for CheckCommand {
             args.provider.clone(),
             args.workspace,
             args.node,
+            args.values,
             args.apps,
         )
         .await?;

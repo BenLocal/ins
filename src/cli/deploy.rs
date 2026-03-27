@@ -7,9 +7,10 @@ use crate::pipeline::{
 
 #[cfg(test)]
 use crate::pipeline::{
-    app_choice_label, apply_stored_values, build_compose_metadata_labels, build_deployment_target,
-    build_template_values, copy_apps_to_workspace, is_template_file, parse_number_value,
-    rendered_template_name, resolve_apps, select_node,
+    app_choice_label, apply_cli_values, apply_stored_values, build_compose_metadata_labels,
+    build_deployment_target, build_template_values, copy_apps_to_workspace, is_template_file,
+    parse_cli_value_overrides, parse_number_value, rendered_template_name, resolve_apps,
+    select_node,
 };
 
 #[derive(clap::Args, Clone, Debug)]
@@ -32,6 +33,7 @@ impl CommandTrait for DeployCommand {
             args.provider.clone(),
             args.workspace,
             args.node,
+            args.values,
             args.apps,
         )
         .await?;

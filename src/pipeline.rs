@@ -40,6 +40,9 @@ pub struct PipelineArgs {
     /// Target node name.
     #[arg(short, long)]
     pub node: Option<String>,
+    /// Override qa values. Can be specified multiple times as key=value.
+    #[arg(short = 'v', long = "value", value_name = "KEY=VALUE")]
+    pub values: Vec<String>,
     /// Application names to deploy.
     pub apps: Option<Vec<String>>,
 }
@@ -73,13 +76,16 @@ pub async fn prepare_deployment(
     provider: String,
     workspace: PathBuf,
     requested_node: Option<String>,
+    requested_values: Vec<String>,
     requested_apps: Option<Vec<String>>,
 ) -> anyhow::Result<PreparedDeployment> {
     let nodes = load_all_nodes(&nodes_file(home)).await?;
     let node = select_node(&nodes, requested_node.as_deref())?;
     let app_home = home.join("app");
     let app_names = resolve_apps(requested_apps, &app_home).await?;
-    let apps = load_app_records_by_names(&app_names, &app_home).await?;
+    let mut apps = load_app_records_by_names(&app_names, &app_home).await?;
+    let value_overrides = parse_cli_value_overrides(&requested_values)?;
+    apply_cli_values(&mut apps, &value_overrides)?;
     let targets = build_deployment_targets(apps, home, &node, &workspace).await?;
 
     Ok(PreparedDeployment {
@@ -547,6 +553,58 @@ pub fn apply_stored_values(app: &mut AppRecord, preset: &StoredDeploymentRecord)
     }
 }
 
+pub fn parse_cli_value_overrides(
+    raw_values: &[String],
+) -> anyhow::Result<BTreeMap<String, String>> {
+    let mut overrides = BTreeMap::new();
+
+    for raw in raw_values {
+        let Some((name, value)) = raw.split_once('=') else {
+            return Err(anyhow!(
+                "invalid value override '{}', expected key=value",
+                raw
+            ));
+        };
+        let key = name.trim();
+        if key.is_empty() {
+            return Err(anyhow!(
+                "invalid value override '{}', key cannot be empty",
+                raw
+            ));
+        }
+        overrides.insert(key.to_string(), value.to_string());
+    }
+
+    Ok(overrides)
+}
+
+pub fn apply_cli_values(
+    apps: &mut [AppRecord],
+    overrides: &BTreeMap<String, String>,
+) -> anyhow::Result<()> {
+    if overrides.is_empty() {
+        return Ok(());
+    }
+
+    let mut matched = BTreeMap::new();
+
+    for app in apps {
+        for value in &mut app.values {
+            let Some(raw) = overrides.get(&value.name) else {
+                continue;
+            };
+            value.value = Some(parse_cli_value(raw, value)?);
+            matched.insert(value.name.clone(), true);
+        }
+    }
+
+    if let Some(missing) = overrides.keys().find(|key| !matched.contains_key(*key)) {
+        return Err(anyhow!("unknown qa value override '{}'", missing));
+    }
+
+    Ok(())
+}
+
 fn materialize_app_values(
     app: &mut AppRecord,
     preset: Option<&StoredDeploymentRecord>,
@@ -608,6 +666,19 @@ fn resolve_app_values(
         .iter()
         .map(|value| resolve_app_value(value, preset.and_then(|p| p.app_values.get(&value.name))))
         .collect()
+}
+
+fn parse_cli_value(raw: &str, value: &AppValue) -> anyhow::Result<Value> {
+    match value.value_type.as_str() {
+        "boolean" => raw
+            .parse::<bool>()
+            .map(Value::Bool)
+            .map_err(|e| anyhow!("invalid boolean for '{}': {}", value.name, e)),
+        "number" => parse_number_value(raw, &value.name),
+        "json" => serde_json::from_str(raw)
+            .map_err(|e| anyhow!("invalid json for '{}': {}", value.name, e)),
+        _ => Ok(Value::String(raw.to_string())),
+    }
 }
 
 fn resolve_app_value(value: &AppValue, stored: Option<&Value>) -> anyhow::Result<Value> {

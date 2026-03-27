@@ -1,7 +1,8 @@
 use super::{
-    app_choice_label, apply_stored_values, build_compose_metadata_labels, build_deployment_target,
-    build_template_values, copy_apps_to_workspace, is_template_file, parse_number_value,
-    rendered_template_name, resolve_apps, select_node,
+    app_choice_label, apply_cli_values, apply_stored_values, build_compose_metadata_labels,
+    build_deployment_target, build_template_values, copy_apps_to_workspace, is_template_file,
+    parse_cli_value_overrides, parse_number_value, rendered_template_name, resolve_apps,
+    select_node,
 };
 use crate::app::types::{AppRecord, AppValue, AppValueOption, ScriptHook};
 use crate::node::types::{NodeRecord, RemoteNodeRecord};
@@ -506,6 +507,69 @@ fn build_template_values_prefers_value_then_default_then_option() {
     assert_eq!(template_values["vars"]["from_value"], json!("explicit"));
     assert_eq!(template_values["vars"]["from_default"], json!(5));
     assert_eq!(template_values["vars"]["from_option"], json!("picked"));
+}
+
+#[test]
+fn parse_cli_value_overrides_supports_repeated_v_flags() {
+    let overrides = parse_cli_value_overrides(&[
+        "image=nginx:1.27".into(),
+        "port=8080".into(),
+        "image=nginx:1.28".into(),
+        "notes=hello world & more".into(),
+    ])
+    .expect("cli overrides should parse");
+
+    assert_eq!(overrides.get("image"), Some(&"nginx:1.28".to_string()));
+    assert_eq!(overrides.get("port"), Some(&"8080".to_string()));
+    assert_eq!(
+        overrides.get("notes"),
+        Some(&"hello world & more".to_string())
+    );
+}
+
+#[test]
+fn apply_cli_values_overrides_default_and_option_values() {
+    let mut apps = vec![AppRecord {
+        name: "demo".into(),
+        version: None,
+        description: None,
+        author_name: None,
+        author_email: None,
+        dependencies: vec![],
+        before: ScriptHook::default(),
+        after: ScriptHook::default(),
+        files: None,
+        values: vec![
+            AppValue {
+                name: "port".into(),
+                value_type: "number".into(),
+                description: None,
+                value: None,
+                default: Some(json!(80)),
+                options: vec![],
+            },
+            AppValue {
+                name: "image".into(),
+                value_type: "string".into(),
+                description: None,
+                value: None,
+                default: None,
+                options: vec![AppValueOption {
+                    name: "nginx".into(),
+                    description: None,
+                    value: Some(json!("nginx:latest")),
+                }],
+            },
+        ],
+    }];
+
+    let overrides = parse_cli_value_overrides(&["port=8080".into(), "image=caddy:2".into()])
+        .expect("cli overrides should parse");
+
+    apply_cli_values(&mut apps, &overrides).expect("cli overrides should apply");
+
+    assert_eq!(apps[0].values[0].value, Some(json!(8080)));
+    assert_eq!(apps[0].values[1].value, Some(json!("caddy:2")));
 }
 
 #[test]

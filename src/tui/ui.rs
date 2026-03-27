@@ -11,6 +11,22 @@ use crate::tui::state::{
 };
 
 pub fn render(frame: &mut Frame, state: &TuiState) {
+    if let Some(overlay) = state.overlay() {
+        match overlay {
+            OverlayState::ServiceActionConfirm(action) => {
+                frame.render_widget(Clear, frame.area());
+                render_service_action_confirm(frame, frame.area(), action);
+                return;
+            }
+            OverlayState::ServiceActionResult(result) => {
+                frame.render_widget(Clear, frame.area());
+                render_service_action_result(frame, frame.area(), result);
+                return;
+            }
+            _ => {}
+        }
+    }
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -41,6 +57,7 @@ pub fn render(frame: &mut Frame, state: &TuiState) {
             OverlayState::AppTextEditor(_) => {
                 render_app_text_editor(frame, centered_rect(80, 70, frame.area()), state)
             }
+            OverlayState::ServiceActionConfirm(_) | OverlayState::ServiceActionResult(_) => {}
         }
     }
 }
@@ -48,7 +65,7 @@ pub fn render(frame: &mut Frame, state: &TuiState) {
 fn render_tabs(frame: &mut Frame, area: Rect, active: ActiveSection) {
     let tabs = Tabs::new(["Nodes", "Apps", "Services"])
         .block(Block::default().borders(Borders::ALL).title("ins tui"))
-        .highlight_style(Style::default().add_modifier(Modifier::BOLD))
+        .highlight_style(Style::default().bg(ratatui::style::Color::Blue).white())
         .select(match active {
             ActiveSection::Nodes => 0,
             ActiveSection::Apps => 1,
@@ -109,7 +126,7 @@ fn render_footer(frame: &mut Frame, area: Rect, state: &TuiState) {
         ],
         ActiveSection::Services => vec![
             Line::from("Tab next | Shift+Tab prev | j/k or Up/Down move | Enter inspect"),
-            Line::from("q quit"),
+            Line::from("c check | d deploy | q quit"),
         ],
     };
     let footer = Paragraph::new(if let Some(status) = status {
@@ -186,7 +203,9 @@ fn shortcuts_hint(section: ActiveSection) -> &'static str {
         ActiveSection::Apps => {
             "Tab next | Shift+Tab prev | j/k move | Enter open | Esc back | a add | e edit | o open | d delete | PgUp/PgDn scroll | q quit"
         }
-        ActiveSection::Services => "Tab next | Shift+Tab prev | j/k move | Enter inspect | q quit",
+        ActiveSection::Services => {
+            "Tab next | Shift+Tab prev | j/k move | Enter inspect | c check | d deploy | q quit"
+        }
     }
 }
 
@@ -217,6 +236,79 @@ fn render_quit_confirm(frame: &mut Frame, area: Rect) {
     .block(Block::default().borders(Borders::ALL).title("Quit"))
     .wrap(Wrap { trim: true });
     frame.render_widget(paragraph, area);
+}
+
+fn render_service_action_confirm(
+    frame: &mut Frame,
+    area: Rect,
+    action: &crate::tui::state::ServiceActionState,
+) {
+    let verb = match action.mode {
+        crate::pipeline::PipelineMode::Check => "Check",
+        crate::pipeline::PipelineMode::Deploy => "Deploy",
+    };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(format!("{verb} Confirm"));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let lines = vec![
+        Line::from(format!(
+            "Run {verb} for service '{}'? ",
+            action.service.service
+        )),
+        Line::from(""),
+        Line::from(format!("app: {}", action.service.app_name)),
+        Line::from(format!("node: {}", action.service.node_name)),
+        Line::from(format!("workspace: {}", action.service.workspace)),
+        Line::from(""),
+        Line::from("Enter confirm | Esc cancel"),
+    ];
+    frame.render_widget(
+        Paragraph::new(Text::from(lines)).wrap(Wrap { trim: false }),
+        inner,
+    );
+}
+
+fn render_service_action_result(
+    frame: &mut Frame,
+    area: Rect,
+    result: &crate::tui::state::ServiceActionResultState,
+) {
+    let verb = match result.mode {
+        crate::pipeline::PipelineMode::Check => "Check",
+        crate::pipeline::PipelineMode::Deploy => "Deploy",
+    };
+    let status = if result.succeeded {
+        "Succeeded"
+    } else {
+        "Failed"
+    };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(format!("{verb} Result"));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let mut lines = vec![
+        Line::from(format!("{verb} {status}")),
+        Line::from(format!("service: {}", result.service.service)),
+        Line::from(format!("app: {}", result.service.app_name)),
+        Line::from(format!("node: {}", result.service.node_name)),
+        Line::from(format!("workspace: {}", result.service.workspace)),
+        Line::from(""),
+    ];
+    lines.extend(Text::from(result.message.clone()).lines);
+    lines.push(Line::from(""));
+    lines.push(Line::from(
+        "Up/Down or PgUp/PgDn scroll | Enter or Esc close",
+    ));
+
+    let paragraph = Paragraph::new(Text::from(lines))
+        .scroll((result.scroll, 0))
+        .wrap(Wrap { trim: false });
+    frame.render_widget(paragraph, inner);
 }
 
 fn render_app_create_form(frame: &mut Frame, area: Rect, state: &TuiState) {

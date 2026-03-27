@@ -10,6 +10,10 @@ use crossterm::{
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
 
+use crate::execution_output::ExecutionOutput;
+use crate::pipeline::{
+    PipelineMode, execute_pipeline_with_output, prepare_installed_service_deployment,
+};
 use crate::tui::state::TuiState;
 
 pub async fn run(home: PathBuf) -> anyhow::Result<()> {
@@ -48,6 +52,42 @@ async fn run_event_loop(
         if state.overlay().is_some() {
             match key.code {
                 KeyCode::Esc => state.cancel_overlay(),
+                KeyCode::Down
+                    if matches!(
+                        state.overlay(),
+                        Some(crate::tui::state::OverlayState::ServiceActionResult(_))
+                    ) =>
+                {
+                    state.scroll_service_action_result_down()
+                }
+                KeyCode::Up
+                    if matches!(
+                        state.overlay(),
+                        Some(crate::tui::state::OverlayState::ServiceActionResult(_))
+                    ) =>
+                {
+                    state.scroll_service_action_result_up()
+                }
+                KeyCode::PageDown
+                    if matches!(
+                        state.overlay(),
+                        Some(crate::tui::state::OverlayState::ServiceActionResult(_))
+                    ) =>
+                {
+                    for _ in 0..10 {
+                        state.scroll_service_action_result_down();
+                    }
+                }
+                KeyCode::PageUp
+                    if matches!(
+                        state.overlay(),
+                        Some(crate::tui::state::OverlayState::ServiceActionResult(_))
+                    ) =>
+                {
+                    for _ in 0..10 {
+                        state.scroll_service_action_result_up();
+                    }
+                }
                 KeyCode::Tab | KeyCode::Down if state.app_text_editor().is_none() => {
                     state.next_overlay_field()
                 }
@@ -57,6 +97,16 @@ async fn run_event_loop(
                 KeyCode::Enter => {
                     if state.app_text_editor().is_some() {
                         state.insert_overlay_newline();
+                    } else if state.pending_service_action().is_some() {
+                        if let Err(error) = run_confirmed_service_action(terminal, &mut state).await
+                        {
+                            state.set_status(error.to_string());
+                        }
+                    } else if matches!(
+                        state.overlay(),
+                        Some(crate::tui::state::OverlayState::ServiceActionResult(_))
+                    ) {
+                        state.cancel_overlay();
                     } else if matches!(
                         state.overlay(),
                         Some(crate::tui::state::OverlayState::QuitConfirm)
@@ -133,6 +183,20 @@ async fn run_event_loop(
                 }
                 crate::tui::state::ActiveSection::Services => {}
             },
+            KeyCode::Char('c')
+                if state.active_section() == crate::tui::state::ActiveSection::Services =>
+            {
+                if let Err(error) = state.open_service_action_confirmation(PipelineMode::Check) {
+                    state.set_status(error.to_string());
+                }
+            }
+            KeyCode::Char('d')
+                if state.active_section() == crate::tui::state::ActiveSection::Services =>
+            {
+                if let Err(error) = state.open_service_action_confirmation(PipelineMode::Deploy) {
+                    state.set_status(error.to_string());
+                }
+            }
             KeyCode::Char('o')
                 if state.active_section() == crate::tui::state::ActiveSection::Apps
                     && state.can_open_external_editor() =>
@@ -148,6 +212,55 @@ async fn run_event_loop(
             _ => {}
         }
     }
+}
+
+async fn run_confirmed_service_action(
+    _terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    state: &mut TuiState,
+) -> anyhow::Result<()> {
+    let action = state
+        .pending_service_action()
+        .ok_or_else(|| anyhow::anyhow!("no service action pending"))?;
+    let service = action.service;
+    let mode = action.mode;
+    state.overlay = None;
+    state.set_status(format!(
+        "Running {} for '{}'",
+        match mode {
+            PipelineMode::Check => "check",
+            PipelineMode::Deploy => "deploy",
+        },
+        service.service
+    ));
+
+    let title = match mode {
+        PipelineMode::Check => "Starting check...",
+        PipelineMode::Deploy => "Starting deployment...",
+    };
+    let output = ExecutionOutput::buffered();
+    let result = async {
+        let prepared =
+            prepare_installed_service_deployment(&state.home, "docker-compose".into(), &service)
+                .await?;
+        execute_pipeline_with_output(&state.home, prepared, title, mode, output.clone()).await
+    }
+    .await;
+
+    match result {
+        Ok(()) => {
+            state.reload_services().await?;
+            state.open_service_action_result(mode, service.clone(), output.snapshot(), true);
+        }
+        Err(error) => {
+            let mut message = output.snapshot();
+            if !message.is_empty() {
+                message.push('\n');
+            }
+            message.push_str(&format!("Error: {error}"));
+            state.open_service_action_result(mode, service.clone(), message, false);
+        }
+    }
+    Ok(())
 }
 
 async fn open_in_external_editor(
@@ -199,6 +312,7 @@ mod tests {
     use crate::{
         app::types::{AppRecord, ScriptHook},
         node::types::{NodeRecord, RemoteNodeRecord},
+        pipeline::PipelineMode,
         provider::DeploymentTarget,
         store::duck::save_deployment_record,
         tui::{
@@ -273,6 +387,67 @@ values: []
         assert_eq!(snapshot.apps.len(), 1);
         assert_eq!(snapshot.services.len(), 1);
         assert!(snapshot.detail_text.contains("node-a"));
+
+        fs::remove_dir_all(&home).await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn tui_state_opens_service_action_confirmation() -> anyhow::Result<()> {
+        let home = unique_test_dir("tui-service-confirm");
+        let app_dir = home.join("app").join("demo");
+
+        fs::create_dir_all(&app_dir).await?;
+        fs::write(
+            app_dir.join("qa.yaml"),
+            r#"
+name: demo
+values: []
+"#
+            .trim_start(),
+        )
+        .await?;
+
+        save_deployment_record(
+            &home,
+            &NodeRecord::Remote(RemoteNodeRecord {
+                name: "node-a".into(),
+                ip: "10.0.0.1".into(),
+                port: 22,
+                user: "root".into(),
+                password: "secret".into(),
+                key_path: None,
+            }),
+            PathBuf::from("/tmp/workspace").as_path(),
+            &DeploymentTarget::new(
+                AppRecord {
+                    name: "demo".into(),
+                    version: None,
+                    description: None,
+                    author_name: None,
+                    author_email: None,
+                    dependencies: vec![],
+                    before: ScriptHook::default(),
+                    after: ScriptHook::default(),
+                    files: None,
+                    values: vec![],
+                },
+                "demo-web".into(),
+            ),
+            "name: demo\nvalues: []\n",
+        )
+        .await?;
+
+        let mut state = TuiState::load(home.clone()).await?;
+        state.next_section();
+        state.next_section();
+        state.open_service_action_confirmation(PipelineMode::Check)?;
+
+        assert!(matches!(
+            state.overlay(),
+            Some(OverlayState::ServiceActionConfirm(action))
+                if action.service.service == "demo-web" && matches!(action.mode, PipelineMode::Check)
+        ));
 
         fs::remove_dir_all(&home).await?;
         Ok(())
@@ -535,6 +710,64 @@ values: []
             .collect::<String>();
 
         assert!(content.contains("o open"));
+    }
+
+    #[test]
+    fn tui_ui_renders_service_footer_actions() {
+        let backend = TestBackend::new(120, 30);
+        let mut terminal = Terminal::new(backend).expect("terminal");
+        let mut state = TuiState::default();
+        state.next_section();
+        state.next_section();
+
+        terminal
+            .draw(|frame| render(frame, &state))
+            .expect("draw should succeed");
+
+        let buffer = terminal.backend().buffer().clone();
+        let content = buffer
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+
+        assert!(content.contains("c check"));
+        assert!(content.contains("d deploy"));
+    }
+
+    #[test]
+    fn tui_ui_renders_service_action_result_overlay() {
+        let backend = TestBackend::new(120, 30);
+        let mut terminal = Terminal::new(backend).expect("terminal");
+        let mut state = TuiState::default();
+        state.open_service_action_result(
+            PipelineMode::Deploy,
+            crate::store::duck::InstalledServiceRecord {
+                service: "demo-web".into(),
+                app_name: "demo".into(),
+                node_name: "node-a".into(),
+                workspace: "/srv/demo".into(),
+                created_at_ms: 1,
+            },
+            "Deploy completed for service 'demo-web'".into(),
+            true,
+        );
+
+        terminal
+            .draw(|frame| render(frame, &state))
+            .expect("draw should succeed");
+
+        let buffer = terminal.backend().buffer().clone();
+        let content = buffer
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+
+        assert!(content.contains("Deploy Result"));
+        assert!(content.contains("Deploy Succeeded"));
+        assert!(content.contains("demo-web"));
+        assert!(content.contains("/srv/demo"));
     }
 
     fn unique_test_dir(name: &str) -> PathBuf {

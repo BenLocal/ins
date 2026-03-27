@@ -10,6 +10,7 @@ use crate::cli::{
 mod app;
 mod cli;
 mod env;
+mod execution_output;
 mod file;
 mod node;
 mod output;

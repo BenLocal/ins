@@ -13,6 +13,7 @@ use crate::app::parse::load_app_record;
 use crate::app::types::{AppRecord, AppValue};
 use crate::cli::node::nodes_file;
 use crate::env::build_provider_envs;
+use crate::execution_output::ExecutionOutput;
 use crate::file::local::LocalFile;
 use crate::file::remote::RemoteFile;
 use crate::file::{FileTrait, ProgressFn};
@@ -21,8 +22,8 @@ use crate::node::types::NodeRecord;
 use crate::provider::docker_compose::DockerComposeProvider;
 use crate::provider::{DeploymentTarget, ProviderContext, ProviderTrait};
 use crate::store::duck::{
-    StoredDeploymentRecord, load_installed_service_configs, load_latest_deployment_record,
-    save_deployment_record,
+    InstalledServiceRecord, StoredDeploymentRecord, load_installed_service_configs,
+    load_latest_deployment_record, save_deployment_record,
 };
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
@@ -57,6 +58,7 @@ pub struct PreparedDeployment {
     pub targets: Vec<DeploymentTarget>,
 }
 
+#[derive(Clone, Copy, Debug)]
 pub enum PipelineMode {
     Check,
     Deploy,
@@ -98,33 +100,98 @@ pub async fn prepare_deployment(
     })
 }
 
+pub async fn prepare_installed_service_deployment(
+    home: &Path,
+    provider: String,
+    service: &InstalledServiceRecord,
+) -> anyhow::Result<PreparedDeployment> {
+    let node = load_all_nodes(&nodes_file(home))
+        .await?
+        .into_iter()
+        .find(|node| node_name(node) == service.node_name)
+        .ok_or_else(|| {
+            anyhow!(
+                "node '{}' not found for service '{}'",
+                service.node_name,
+                service.service
+            )
+        })?;
+
+    let app_home = home.join("app");
+    let qa_file = app_qa_file(&app_home.join(&service.app_name));
+    let mut app = load_app_record(&qa_file).await?;
+    let stored_config = load_installed_service_configs(home)
+        .await?
+        .into_iter()
+        .find(|record| record.service == service.service)
+        .ok_or_else(|| anyhow!("service '{}' config not found", service.service))?;
+
+    for value in &mut app.values {
+        if let Some(stored) = stored_config.app_values.get(&value.name) {
+            value.value = Some(stored.clone());
+        }
+    }
+
+    let target = DeploymentTarget::new(app, service.service.clone());
+
+    Ok(PreparedDeployment {
+        provider,
+        node,
+        app_names: vec![service.app_name.clone()],
+        app_home,
+        workspace: PathBuf::from(&service.workspace),
+        targets: vec![target],
+    })
+}
+
+#[allow(dead_code)]
 pub fn print_prepared_deployment(title: &str, prepared: &PreparedDeployment) {
-    println!("{}", title);
-    println!("Provider Name: {}", prepared.provider);
-    println!("Node Name: {}", node_name(&prepared.node));
-    println!("Apps: {}", prepared.app_names.join(", "));
-    println!("Workspace: {}", prepared.workspace.display());
-    println!("Deployment Targets:");
+    let output = ExecutionOutput::stdout();
+    print_prepared_deployment_to_output(title, prepared, &output);
+}
+
+pub fn print_prepared_deployment_to_output(
+    title: &str,
+    prepared: &PreparedDeployment,
+    output: &ExecutionOutput,
+) {
+    output.line(title);
+    output.line(format!("Provider Name: {}", prepared.provider));
+    output.line(format!("Node Name: {}", node_name(&prepared.node)));
+    output.line(format!("Apps: {}", prepared.app_names.join(", ")));
+    output.line(format!("Workspace: {}", prepared.workspace.display()));
+    output.line("Deployment Targets:");
     for target in &prepared.targets {
-        println!(
+        output.line(format!(
             "  {} -> service {} -> {}",
             target.app.name,
             target.service,
             prepared.workspace.join(&target.service).display()
-        );
+        ));
     }
 }
 
+#[allow(dead_code)]
 pub async fn copy_prepared_apps_to_workspace(
     home: &Path,
     prepared: &PreparedDeployment,
 ) -> anyhow::Result<()> {
-    copy_apps_to_workspace(
+    let output = ExecutionOutput::stdout();
+    copy_prepared_apps_to_workspace_with_output(home, prepared, &output).await
+}
+
+pub async fn copy_prepared_apps_to_workspace_with_output(
+    home: &Path,
+    prepared: &PreparedDeployment,
+    output: &ExecutionOutput,
+) -> anyhow::Result<()> {
+    copy_apps_to_workspace_with_output(
         home,
         &prepared.targets,
         &prepared.app_home,
         &prepared.workspace,
         &prepared.node,
+        output,
     )
     .await
 }
@@ -135,10 +202,21 @@ pub async fn execute_pipeline(
     title: &str,
     mode: PipelineMode,
 ) -> anyhow::Result<()> {
+    let output = ExecutionOutput::stdout();
+    execute_pipeline_with_output(home, prepared, title, mode, output).await
+}
+
+pub async fn execute_pipeline_with_output(
+    home: &Path,
+    prepared: PreparedDeployment,
+    title: &str,
+    mode: PipelineMode,
+    output: ExecutionOutput,
+) -> anyhow::Result<()> {
     let provider = ensure_supported_provider(&prepared.provider)?;
 
-    print_prepared_deployment(title, &prepared);
-    copy_prepared_apps_to_workspace(home, &prepared).await?;
+    print_prepared_deployment_to_output(title, &prepared, &output);
+    copy_prepared_apps_to_workspace_with_output(home, &prepared, &output).await?;
 
     let provider_ctx = ProviderContext::new(
         prepared.provider.clone(),
@@ -150,25 +228,29 @@ pub async fn execute_pipeline(
             &prepared.node,
             &load_installed_service_configs(home).await?,
         )?,
+        output.clone(),
     );
 
     match mode {
         PipelineMode::Check => {
-            print_provider_envs(&provider_ctx.envs);
-            println!("Validating with provider...");
+            print_provider_envs(&provider_ctx.envs, &output);
+            output.line("Validating with provider...");
             provider.validate(provider_ctx).await?;
-            println!("Check completed.");
+            output.line("Check completed.");
             Ok(())
         }
         PipelineMode::Deploy => {
-            println!("Running provider...");
+            output.line("Running provider...");
             provider.run(provider_ctx).await
         }
     }
 }
 
-fn print_provider_envs(envs: &BTreeMap<String, BTreeMap<String, String>>) {
-    println!("{}", format_provider_envs(envs));
+fn print_provider_envs(
+    envs: &BTreeMap<String, BTreeMap<String, String>>,
+    output: &ExecutionOutput,
+) {
+    output.line(format_provider_envs(envs));
 }
 
 fn format_provider_envs(envs: &BTreeMap<String, BTreeMap<String, String>>) -> String {
@@ -270,6 +352,7 @@ async fn load_app_records_by_names(
     Ok(records)
 }
 
+#[cfg(test)]
 pub async fn copy_apps_to_workspace(
     home: &Path,
     targets: &[DeploymentTarget],
@@ -277,7 +360,19 @@ pub async fn copy_apps_to_workspace(
     workspace: &Path,
     node: &NodeRecord,
 ) -> anyhow::Result<()> {
-    println!("Saving deployment records...");
+    let output = ExecutionOutput::stdout();
+    copy_apps_to_workspace_with_output(home, targets, app_home, workspace, node, &output).await
+}
+
+pub async fn copy_apps_to_workspace_with_output(
+    home: &Path,
+    targets: &[DeploymentTarget],
+    app_home: &Path,
+    workspace: &Path,
+    node: &NodeRecord,
+    output: &ExecutionOutput,
+) -> anyhow::Result<()> {
+    output.line("Saving deployment records...");
     for target in targets {
         let source_dir = app_home.join(&target.app.name);
         let qa_file = app_qa_file(&source_dir);
@@ -285,23 +380,28 @@ pub async fn copy_apps_to_workspace(
         let qa_yaml = fs::read_to_string(&qa_file)
             .await
             .map_err(|e| anyhow!("read qa file {}: {}", qa_file.display(), e))?;
-        println!(
+        output.line(format!(
             "Save deployment record for app '{}' into service '{}'",
             target.app.name, target.service
-        );
+        ));
         save_deployment_record(home, node, workspace, target, &qa_yaml).await?;
     }
 
     target_file_for_node(node).create_dir_all(workspace).await?;
 
-    println!("Copying app files to workspace...");
+    output.line("Copying app files to workspace...");
     for target in targets {
         let source_dir = app_home.join(&target.app.name);
         let target_dir = workspace.join(&target.service);
 
-        if let Some(progress) =
-            CopyAppProgress::new(&target.app.name, &target.service, &source_dir, &target_dir)
-                .await?
+        if let Some(progress) = CopyAppProgress::new(
+            &target.app.name,
+            &target.service,
+            &source_dir,
+            &target_dir,
+            output.echo_enabled(),
+        )
+        .await?
         {
             copy_dir_recursive(
                 &source_dir,
@@ -309,17 +409,18 @@ pub async fn copy_apps_to_workspace(
                 &target.app,
                 node,
                 Some(progress.clone()),
+                output,
             )
             .await?;
             progress.finish();
         } else {
-            println!(
+            output.line(format!(
                 "  Copying app '{}' into service '{}' at {}",
                 target.app.name,
                 target.service,
                 target_dir.display()
-            );
-            copy_dir_recursive(&source_dir, &target_dir, &target.app, node, None).await?;
+            ));
+            copy_dir_recursive(&source_dir, &target_dir, &target.app, node, None, output).await?;
         }
     }
 
@@ -421,6 +522,7 @@ async fn copy_dir_recursive(
     app_record: &AppRecord,
     node: &NodeRecord,
     progress: Option<Arc<CopyAppProgress>>,
+    output: &ExecutionOutput,
 ) -> anyhow::Result<()> {
     let template_values = build_template_values(app_record)?;
     let jobs = collect_copy_jobs(source, target).await?;
@@ -440,10 +542,12 @@ async fn copy_dir_recursive(
             let job = jobs[next_job].clone();
             let template_values = template_values.clone();
             let node = node.clone();
+            let output = output.clone();
             let slot_progress = progress.as_ref().map(|progress| progress.slot(slot));
             join_set.spawn(async move {
                 let result =
-                    copy_file_to_workspace(job, &template_values, &node, slot_progress).await;
+                    copy_file_to_workspace(job, &template_values, &node, slot_progress, &output)
+                        .await;
                 (slot, result)
             });
             next_job += 1;
@@ -831,6 +935,7 @@ async fn copy_file_to_workspace(
     template_values: &serde_json::Value,
     node: &NodeRecord,
     progress: Option<CopyProgressSlot>,
+    output: &ExecutionOutput,
 ) -> anyhow::Result<()> {
     let source_file = LocalFile;
     let target_file = target_file_for_node(node);
@@ -839,11 +944,11 @@ async fn copy_file_to_workspace(
         if let Some(progress) = progress.as_ref() {
             progress.start_template(&job.target_path);
         } else {
-            println!(
+            output.line(format!(
                 "    Rendering template {} -> {}",
                 job.source_path.display(),
                 job.target_path.display()
-            );
+            ));
         }
         let source = source_file
             .read(&job.source_path, None)
@@ -874,11 +979,11 @@ async fn copy_file_to_workspace(
     if let Some(progress) = progress.as_ref() {
         progress.start_copy(&job.target_path, source_size);
     } else {
-        println!(
+        output.line(format!(
             "    Copying file {} -> {}",
             job.source_path.display(),
             job.target_path.display()
-        );
+        ));
     }
     let source_bytes = source_file
         .read_bytes(&job.source_path, None)
@@ -1020,8 +1125,22 @@ fn labels_value_to_mapping(
 
 #[cfg(test)]
 mod tests {
-    use super::format_provider_envs;
+    use super::{format_provider_envs, prepare_installed_service_deployment};
+    use crate::{
+        app::types::{AppRecord, AppValue, ScriptHook},
+        cli::node::{NodeAddArgs, add_node_record, nodes_file},
+        node::types::{NodeRecord, RemoteNodeRecord},
+        provider::DeploymentTarget,
+        store::duck::{InstalledServiceRecord, save_deployment_record},
+    };
+    use serde_json::json;
     use std::collections::BTreeMap;
+    use std::{
+        env,
+        path::PathBuf,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+    use tokio::fs;
 
     #[test]
     fn format_provider_envs_lists_services_and_values_in_order() {
@@ -1051,6 +1170,120 @@ mod tests {
     fn format_provider_envs_handles_empty_maps() {
         let output = format_provider_envs(&BTreeMap::new());
         assert_eq!(output, "Provider Environment Variables:\n  (none)");
+    }
+
+    #[tokio::test]
+    async fn prepare_installed_service_deployment_reuses_saved_service_and_values()
+    -> anyhow::Result<()> {
+        let home = unique_test_dir("pipeline-installed-service");
+        let app_dir = home.join("app").join("demo");
+        fs::create_dir_all(&app_dir).await?;
+        fs::write(
+            app_dir.join("qa.yaml"),
+            r#"
+name: demo
+values:
+  - name: image
+    type: string
+  - name: port
+    type: number
+"#
+            .trim_start(),
+        )
+        .await?;
+
+        let node = NodeRecord::Remote(RemoteNodeRecord {
+            name: "node-a".into(),
+            ip: "10.0.0.1".into(),
+            port: 22,
+            user: "root".into(),
+            password: "secret".into(),
+            key_path: None,
+        });
+        add_node_record(
+            &nodes_file(&home),
+            NodeAddArgs {
+                name: "node-a".into(),
+                ip: "10.0.0.1".into(),
+                port: 22,
+                user: "root".into(),
+                password: "secret".into(),
+                key_path: None,
+            },
+        )
+        .await?;
+        let target = DeploymentTarget::new(
+            AppRecord {
+                name: "demo".into(),
+                version: None,
+                description: None,
+                author_name: None,
+                author_email: None,
+                dependencies: vec![],
+                before: ScriptHook::default(),
+                after: ScriptHook::default(),
+                files: None,
+                values: vec![
+                    AppValue {
+                        name: "image".into(),
+                        value_type: "string".into(),
+                        description: None,
+                        value: Some(json!("nginx:1.27")),
+                        default: None,
+                        options: vec![],
+                    },
+                    AppValue {
+                        name: "port".into(),
+                        value_type: "number".into(),
+                        description: None,
+                        value: Some(json!(8080)),
+                        default: None,
+                        options: vec![],
+                    },
+                ],
+            },
+            "demo-web".into(),
+        );
+        save_deployment_record(
+            &home,
+            &node,
+            PathBuf::from("/srv/demo").as_path(),
+            &target,
+            "name: demo\nvalues: []\n",
+        )
+        .await?;
+
+        let prepared = prepare_installed_service_deployment(
+            &home,
+            "docker-compose".into(),
+            &InstalledServiceRecord {
+                service: "demo-web".into(),
+                app_name: "demo".into(),
+                node_name: "node-a".into(),
+                workspace: "/srv/demo".into(),
+                created_at_ms: 1,
+            },
+        )
+        .await?;
+
+        assert_eq!(prepared.targets.len(), 1);
+        assert_eq!(prepared.targets[0].service, "demo-web");
+        assert_eq!(
+            prepared.targets[0].app.values[0].value,
+            Some(json!("nginx:1.27"))
+        );
+        assert_eq!(prepared.targets[0].app.values[1].value, Some(json!(8080)));
+
+        fs::remove_dir_all(&home).await?;
+        Ok(())
+    }
+
+    fn unique_test_dir(name: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time before unix epoch")
+            .as_nanos();
+        env::temp_dir().join(format!("ins-{name}-{}-{nanos}", std::process::id()))
     }
 }
 
@@ -1116,8 +1349,9 @@ impl CopyAppProgress {
         _service: &str,
         source_dir: &Path,
         target_dir: &Path,
+        enable: bool,
     ) -> anyhow::Result<Option<Arc<Self>>> {
-        if !std::io::stdout().is_terminal() {
+        if !enable || !std::io::stdout().is_terminal() {
             return Ok(None);
         }
 

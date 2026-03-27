@@ -7,6 +7,7 @@ use tokio::signal;
 use tokio::time::{Duration, sleep};
 
 use crate::env::{shell_exports, shell_quote};
+use crate::execution_output::ExecutionOutput;
 use crate::file::remote::RemoteFile;
 use crate::node::types::NodeRecord;
 use crate::provider::{ProviderContext, ProviderTrait};
@@ -22,52 +23,87 @@ enum ComposeCommandKind {
 #[async_trait]
 impl ProviderTrait for DockerComposeProvider {
     async fn validate(&self, ctx: ProviderContext) -> anyhow::Result<()> {
-        println!("Provider '{}': validating deployment", ctx.provider);
+        ctx.output.line(format!(
+            "Provider '{}': validating deployment",
+            ctx.provider
+        ));
 
         match &ctx.node {
             NodeRecord::Local() => {
-                let compose_command = resolve_local_compose_command().await?;
+                let compose_command = resolve_local_compose_command(&ctx.output).await?;
 
                 for target in &ctx.targets {
                     let app_dir = ctx.workspace.join(&target.service);
                     let compose_file = compose_file_for_target(&app_dir, &target.app.name)?;
                     let envs = ctx.env_for_target(&target.service);
 
-                    println!(
+                    ctx.output.line(format!(
                         "Validating app '{}' as service '{}' from {}",
                         target.app.name,
                         target.service,
                         app_dir.display()
-                    );
+                    ));
 
-                    let status = run_local_compose_command(
-                        compose_command,
-                        &compose_file,
-                        &app_dir,
-                        &envs,
-                        &["config", "-q"],
-                    )
-                    .await
-                    .with_context(|| {
-                        format!(
-                            "failed to validate docker compose for app '{}' service '{}'",
-                            target.app.name, target.service
+                    if ctx.output.echo_enabled() {
+                        let status = run_local_compose_command_streaming(
+                            compose_command,
+                            &compose_file,
+                            &app_dir,
+                            &envs,
+                            &["config", "-q"],
                         )
-                    })?;
+                        .await
+                        .with_context(|| {
+                            format!(
+                                "failed to validate docker compose for app '{}' service '{}'",
+                                target.app.name, target.service
+                            )
+                        })?;
 
-                    if !status.success() {
-                        return Err(anyhow!(
-                            "❌ docker compose validation failed for app '{}' service '{}' (exit code {:?})",
-                            target.app.name,
-                            target.service,
-                            status.code()
-                        ));
+                        if !status.success() {
+                            return Err(anyhow!(
+                                "❌ docker compose validation failed for app '{}' service '{}' (exit code {:?})",
+                                target.app.name,
+                                target.service,
+                                status.code()
+                            ));
+                        }
+                    } else {
+                        let command_output = run_local_compose_command_capture(
+                            compose_command,
+                            &compose_file,
+                            &app_dir,
+                            &envs,
+                            &["config", "-q"],
+                        )
+                        .await
+                        .with_context(|| {
+                            format!(
+                                "failed to validate docker compose for app '{}' service '{}'",
+                                target.app.name, target.service
+                            )
+                        })?;
+
+                        append_command_output(
+                            &ctx.output,
+                            &command_output.stdout,
+                            &command_output.stderr,
+                        );
+
+                        if !command_output.status.success() {
+                            return Err(anyhow!(
+                                "❌ docker compose validation failed for app '{}' service '{}' (exit code {:?})",
+                                target.app.name,
+                                target.service,
+                                command_output.status.code()
+                            ));
+                        }
                     }
 
-                    println!(
+                    ctx.output.line(format!(
                         "✅ docker compose validation passed for app '{}' service '{}'",
                         target.app.name, target.service
-                    );
+                    ));
                 }
 
                 Ok(())
@@ -82,21 +118,24 @@ impl ProviderTrait for DockerComposeProvider {
                     let command =
                         docker_compose_shell_command(compose_command, &app_dir, &envs, "config -q");
 
-                    println!(
+                    ctx.output.line(format!(
                         "Validating app '{}' as service '{}' from {} on remote node '{}'",
                         target.app.name,
                         target.service,
                         app_dir.display(),
                         remote.name
-                    );
+                    ));
 
-                    let output =
-                        remote_file.exec(&command).await.with_context(|| {
-                            format!(
-                                "failed to validate docker compose for app '{}' service '{}' on node '{}'",
-                                target.app.name, target.service, remote.name
-                            )
-                        })?;
+                    let output = remote_file.exec(&command).await.with_context(|| {
+                        format!(
+                            "failed to validate docker compose for app '{}' service '{}' on node '{}'",
+                            target.app.name, target.service, remote.name
+                        )
+                    })?;
+                    let rendered = render_remote_output(&output.stdout, &output.stderr);
+                    if rendered != "no remote output" {
+                        ctx.output.line(rendered.clone());
+                    }
 
                     if output.exit_status != 0 {
                         return Err(anyhow!(
@@ -105,14 +144,14 @@ impl ProviderTrait for DockerComposeProvider {
                             target.service,
                             remote.name,
                             output.exit_status,
-                            render_remote_output(&output.stdout, &output.stderr)
+                            rendered
                         ));
                     }
 
-                    println!(
+                    ctx.output.line(format!(
                         "✅ docker compose validation passed for app '{}' service '{}' on remote node '{}'",
                         target.app.name, target.service, remote.name
-                    );
+                    ));
                 }
 
                 Ok(())
@@ -121,58 +160,93 @@ impl ProviderTrait for DockerComposeProvider {
     }
 
     async fn run(&self, ctx: ProviderContext) -> anyhow::Result<()> {
-        println!("Provider '{}': starting deployment", ctx.provider);
+        ctx.output
+            .line(format!("Provider '{}': starting deployment", ctx.provider));
 
         match &ctx.node {
             NodeRecord::Local() => {
-                let compose_command = resolve_local_compose_command().await?;
+                let compose_command = resolve_local_compose_command(&ctx.output).await?;
 
                 for target in &ctx.targets {
                     let app_dir = ctx.workspace.join(&target.service);
                     let compose_file = compose_file_for_target(&app_dir, &target.app.name)?;
                     let envs = ctx.env_for_target(&target.service);
 
-                    println!(
+                    ctx.output.line(format!(
                         "Deploying app '{}' as service '{}' from {}",
                         target.app.name,
                         target.service,
                         app_dir.display()
-                    );
+                    ));
 
-                    let mut child = spawn_local_compose_command(
-                        compose_command,
-                        &compose_file,
-                        &app_dir,
-                        &envs,
-                        &["up", "-d"],
-                    )
-                    .await
-                    .with_context(|| {
-                        format!(
-                            "failed to run docker compose for app '{}' service '{}' (file {})",
-                            target.app.name,
-                            target.service,
-                            compose_file.display()
+                    if ctx.output.echo_enabled() {
+                        let mut child = spawn_local_compose_command(
+                            compose_command,
+                            &compose_file,
+                            &app_dir,
+                            &envs,
+                            &["up", "-d"],
                         )
-                    })?;
+                        .await
+                        .with_context(|| {
+                            format!(
+                                "failed to run docker compose for app '{}' service '{}' (file {})",
+                                target.app.name,
+                                target.service,
+                                compose_file.display()
+                            )
+                        })?;
 
-                    let status =
-                        wait_for_child_or_ctrl_c(&mut child, &target.app.name, &target.service)
-                            .await?;
+                        let status =
+                            wait_for_child_or_ctrl_c(&mut child, &target.app.name, &target.service)
+                                .await?;
 
-                    if !status.success() {
-                        return Err(anyhow!(
-                            "❌ docker compose up failed for app '{}' service '{}' (exit code {:?})",
-                            target.app.name,
-                            target.service,
-                            status.code()
-                        ));
+                        if !status.success() {
+                            return Err(anyhow!(
+                                "❌ docker compose up failed for app '{}' service '{}' (exit code {:?})",
+                                target.app.name,
+                                target.service,
+                                status.code()
+                            ));
+                        }
+                    } else {
+                        let command_output = run_local_compose_command_capture(
+                            compose_command,
+                            &compose_file,
+                            &app_dir,
+                            &envs,
+                            &["up", "-d"],
+                        )
+                        .await
+                        .with_context(|| {
+                            format!(
+                                "failed to run docker compose for app '{}' service '{}' (file {})",
+                                target.app.name,
+                                target.service,
+                                compose_file.display()
+                            )
+                        })?;
+
+                        append_command_output(
+                            &ctx.output,
+                            &command_output.stdout,
+                            &command_output.stderr,
+                        );
+
+                        if !command_output.status.success() {
+                            return Err(anyhow!(
+                                "❌ docker compose up failed for app '{}' service '{}' (exit code {:?})",
+                                target.app.name,
+                                target.service,
+                                command_output.status.code()
+                            ));
+                        }
                     }
 
-                    println!(
+                    ctx.output.line(format!(
                         "✅ docker compose up succeeded for app '{}' service '{}'",
                         target.app.name, target.service
-                    );
+                    ));
                 }
 
                 Ok(())
@@ -187,13 +261,13 @@ impl ProviderTrait for DockerComposeProvider {
                     let command =
                         docker_compose_shell_command(compose_command, &app_dir, &envs, "up -d");
 
-                    println!(
+                    ctx.output.line(format!(
                         "Deploying app '{}' as service '{}' from {} on remote node '{}'",
                         target.app.name,
                         target.service,
                         app_dir.display(),
                         remote.name
-                    );
+                    ));
 
                     let output = remote_file.tty_exec(&command).await.with_context(|| {
                         format!(
@@ -201,6 +275,10 @@ impl ProviderTrait for DockerComposeProvider {
                             target.app.name, target.service, remote.name
                         )
                     })?;
+                    let rendered = render_remote_output(&output.stdout, &output.stderr);
+                    if rendered != "no remote output" {
+                        ctx.output.line(rendered.clone());
+                    }
 
                     if output.exit_status != 0 {
                         return Err(anyhow!(
@@ -209,14 +287,14 @@ impl ProviderTrait for DockerComposeProvider {
                             target.service,
                             remote.name,
                             output.exit_status,
-                            render_remote_output(&output.stdout, &output.stderr)
+                            rendered
                         ));
                     }
 
-                    println!(
+                    ctx.output.line(format!(
                         "✅ docker compose up succeeded for app '{}' service '{}' on remote node '{}'",
                         target.app.name, target.service, remote.name
-                    );
+                    ));
                 }
 
                 Ok(())
@@ -225,27 +303,54 @@ impl ProviderTrait for DockerComposeProvider {
     }
 }
 
-async fn resolve_local_compose_command() -> anyhow::Result<ComposeCommandKind> {
+async fn resolve_local_compose_command(
+    output: &ExecutionOutput,
+) -> anyhow::Result<ComposeCommandKind> {
     if which_local("docker").await? {
-        let status = Command::new("docker")
-            .arg("compose")
-            .arg("version")
-            .status()
-            .await
-            .context("run 'docker compose version'")?;
-        if status.success() {
-            return Ok(ComposeCommandKind::DockerComposePlugin);
+        if output.echo_enabled() {
+            let status = Command::new("docker")
+                .arg("compose")
+                .arg("version")
+                .status()
+                .await
+                .context("run 'docker compose version'")?;
+            if status.success() {
+                return Ok(ComposeCommandKind::DockerComposePlugin);
+            }
+        } else {
+            let version_output = Command::new("docker")
+                .arg("compose")
+                .arg("version")
+                .output()
+                .await
+                .context("run 'docker compose version'")?;
+            append_command_output(output, &version_output.stdout, &version_output.stderr);
+            if version_output.status.success() {
+                return Ok(ComposeCommandKind::DockerComposePlugin);
+            }
         }
     }
 
     if which_local("docker-compose").await? {
-        let status = Command::new("docker-compose")
-            .arg("--version")
-            .status()
-            .await
-            .context("run 'docker-compose --version'")?;
-        if status.success() {
-            return Ok(ComposeCommandKind::DockerComposeBinary);
+        if output.echo_enabled() {
+            let status = Command::new("docker-compose")
+                .arg("--version")
+                .status()
+                .await
+                .context("run 'docker-compose --version'")?;
+            if status.success() {
+                return Ok(ComposeCommandKind::DockerComposeBinary);
+            }
+        } else {
+            let version_output = Command::new("docker-compose")
+                .arg("--version")
+                .output()
+                .await
+                .context("run 'docker-compose --version'")?;
+            append_command_output(output, &version_output.stdout, &version_output.stderr);
+            if version_output.status.success() {
+                return Ok(ComposeCommandKind::DockerComposeBinary);
+            }
         }
     }
 
@@ -263,7 +368,19 @@ async fn which_local(command: &str) -> anyhow::Result<bool> {
     }
 }
 
-async fn run_local_compose_command(
+async fn run_local_compose_command_capture(
+    compose_command: ComposeCommandKind,
+    compose_file: &std::path::Path,
+    app_dir: &std::path::Path,
+    envs: &BTreeMap<String, String>,
+    args: &[&str],
+) -> anyhow::Result<std::process::Output> {
+    let mut command =
+        build_local_compose_command(compose_command, compose_file, app_dir, envs, args);
+    command.output().await.map_err(anyhow::Error::from)
+}
+
+async fn run_local_compose_command_streaming(
     compose_command: ComposeCommandKind,
     compose_file: &std::path::Path,
     app_dir: &std::path::Path,
@@ -435,6 +552,22 @@ fn collapse_carriage_returns(s: &str) -> String {
         .map(|line| line.split('\r').next_back().unwrap_or_default())
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn append_command_output(output: &ExecutionOutput, stdout: &[u8], stderr: &[u8]) {
+    let stdout = String::from_utf8_lossy(stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(stderr).trim().to_string();
+
+    if !stdout.is_empty() {
+        for line in stdout.lines() {
+            output.line(line);
+        }
+    }
+    if !stderr.is_empty() {
+        for line in stderr.lines() {
+            output.error_line(line);
+        }
+    }
 }
 
 async fn wait_for_child_or_ctrl_c(

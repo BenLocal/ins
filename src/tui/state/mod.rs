@@ -15,6 +15,7 @@ use apps::{app_file_label, app_label, load_app_details};
 use nodes::{node_detail, node_label};
 use services::{service_detail, service_label};
 
+use crate::pipeline::PipelineMode;
 use crate::{app::types::AppRecord, node::types::NodeRecord, store::duck::InstalledServiceRecord};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -68,6 +69,23 @@ pub enum OverlayState {
     QuitConfirm,
     AppCreateForm(AppCreateFormState),
     AppTextEditor(AppTextEditorState),
+    ServiceActionConfirm(ServiceActionState),
+    ServiceActionResult(ServiceActionResultState),
+}
+
+#[derive(Clone, Debug)]
+pub struct ServiceActionState {
+    pub mode: PipelineMode,
+    pub service: InstalledServiceRecord,
+}
+
+#[derive(Clone, Debug)]
+pub struct ServiceActionResultState {
+    pub mode: PipelineMode,
+    pub service: InstalledServiceRecord,
+    pub message: String,
+    pub succeeded: bool,
+    pub scroll: u16,
 }
 
 #[cfg(test)]
@@ -176,8 +194,72 @@ impl TuiState {
         self.status = Some("Confirm quit".into());
     }
 
+    pub fn open_service_action_confirmation(&mut self, mode: PipelineMode) -> anyhow::Result<()> {
+        let service = self
+            .selected_service()
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("no service selected"))?;
+        self.overlay = Some(OverlayState::ServiceActionConfirm(ServiceActionState {
+            mode,
+            service: service.clone(),
+        }));
+        self.status = Some(format!(
+            "Confirm {} for '{}'",
+            service_action_label(mode),
+            service.service
+        ));
+        Ok(())
+    }
+
+    pub fn open_service_action_result(
+        &mut self,
+        mode: PipelineMode,
+        service: InstalledServiceRecord,
+        message: String,
+        succeeded: bool,
+    ) {
+        self.overlay = Some(OverlayState::ServiceActionResult(
+            ServiceActionResultState {
+                mode,
+                service: service.clone(),
+                message,
+                succeeded,
+                scroll: 0,
+            },
+        ));
+        self.status = Some(format!(
+            "{} {} for '{}'",
+            service_action_label(mode),
+            if succeeded { "completed" } else { "failed" },
+            service.service
+        ));
+    }
+
+    pub fn pending_service_action(&self) -> Option<ServiceActionState> {
+        match self.overlay.as_ref() {
+            Some(OverlayState::ServiceActionConfirm(action)) => Some(action.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn scroll_service_action_result_down(&mut self) {
+        if let Some(OverlayState::ServiceActionResult(result)) = self.overlay.as_mut() {
+            result.scroll = result.scroll.saturating_add(1);
+        }
+    }
+
+    pub fn scroll_service_action_result_up(&mut self) {
+        if let Some(OverlayState::ServiceActionResult(result)) = self.overlay.as_mut() {
+            result.scroll = result.scroll.saturating_sub(1);
+        }
+    }
+
     pub fn status_text(&self) -> Option<&str> {
         self.status.as_deref()
+    }
+
+    pub fn selected_service(&self) -> Option<&InstalledServiceRecord> {
+        self.services.get(self.service_index)
     }
 
     pub fn next_section(&mut self) {
@@ -454,6 +536,7 @@ impl TuiState {
                 )
                 .await
             }
+            OverlayState::ServiceActionConfirm(_) | OverlayState::ServiceActionResult(_) => Ok(()),
             OverlayState::QuitConfirm => Ok(()),
         }
     }
@@ -466,6 +549,20 @@ impl TuiState {
             manager.selected_file_index =
                 clamp_index(manager.selected_file_index, manager.files.len());
         }
+    }
+
+    pub async fn reload_services(&mut self) -> anyhow::Result<()> {
+        self.services = crate::cli::service::list_service_records(&self.home).await?;
+        self.service_details = self.services.iter().map(service_detail).collect();
+        self.service_index = clamp_index(self.service_index, self.services.len());
+        Ok(())
+    }
+}
+
+fn service_action_label(mode: PipelineMode) -> &'static str {
+    match mode {
+        PipelineMode::Check => "check",
+        PipelineMode::Deploy => "deploy",
     }
 }
 

@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use crate::execution_output::ExecutionOutput;
 use crate::{app::types::AppRecord, node::types::NodeRecord};
 
 pub mod docker_compose;
@@ -25,6 +26,7 @@ pub struct ProviderContext {
     pub targets: Vec<DeploymentTarget>,
     pub workspace: PathBuf,
     pub envs: BTreeMap<String, BTreeMap<String, String>>,
+    pub output: ExecutionOutput,
 }
 
 impl ProviderContext {
@@ -34,6 +36,7 @@ impl ProviderContext {
         targets: Vec<DeploymentTarget>,
         workspace: PathBuf,
         envs: BTreeMap<String, BTreeMap<String, String>>,
+        output: ExecutionOutput,
     ) -> Self {
         Self {
             provider,
@@ -41,6 +44,7 @@ impl ProviderContext {
             targets,
             workspace,
             envs,
+            output,
         }
     }
 

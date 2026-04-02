@@ -43,7 +43,7 @@ cargo build --release --features duckdb-bundled
 
 ## CI/CD
 
-- Push and pull request validation runs `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --features duckdb-bundled`, and `cross build --release --features duckdb-bundled` for Linux, macOS, and Windows targets.
+- Push and pull request validation runs `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test --features duckdb-bundled` on Linux.
 - Pushing a `v*` tag creates a GitHub Release and uploads archives for:
   - `x86_64-apple-darwin`
   - `aarch64-apple-darwin`

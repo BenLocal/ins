@@ -16,6 +16,10 @@ pub(crate) struct AppRecord {
     pub(crate) after: ScriptHook,
     #[serde(default)]
     pub(crate) values: Vec<AppValue>,
+    #[serde(default)]
+    pub(crate) volumes: Vec<String>,
+    #[serde(default)]
+    pub(crate) all_volume: bool,
     #[serde(skip_deserializing)]
     pub(crate) files: Option<Vec<AppFileEntry>>,
 }

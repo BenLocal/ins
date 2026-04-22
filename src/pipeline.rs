@@ -425,6 +425,7 @@ pub async fn copy_apps_to_workspace_with_output(
                 &source_dir,
                 &target_dir,
                 &template_values,
+                &target.app,
                 node,
                 volumes_config,
                 Some(progress.clone()),
@@ -444,6 +445,7 @@ pub async fn copy_apps_to_workspace_with_output(
                 &source_dir,
                 &target_dir,
                 &template_values,
+                &target.app,
                 node,
                 volumes_config,
                 None,
@@ -557,10 +559,12 @@ fn author_display(app: &AppRecord) -> Option<String> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn copy_dir_recursive(
     source: &Path,
     target: &Path,
     template_values: &serde_json::Value,
+    app: &AppRecord,
     node: &NodeRecord,
     volumes_config: &[VolumeRecord],
     progress: Option<Arc<CopyAppProgress>>,
@@ -583,6 +587,7 @@ async fn copy_dir_recursive(
             let slot = available_slots.pop().expect("slot available");
             let job = jobs[next_job].clone();
             let template_values = template_values.clone();
+            let app = app.clone();
             let node = node.clone();
             let volumes_config = volumes_config.to_vec();
             let output = output.clone();
@@ -591,6 +596,7 @@ async fn copy_dir_recursive(
                 let result = copy_file_to_workspace(
                     job,
                     &template_values,
+                    &app,
                     &node,
                     &volumes_config,
                     slot_progress,
@@ -997,6 +1003,7 @@ fn format_timestamp_ms(timestamp_ms: i64) -> String {
 async fn copy_file_to_workspace(
     job: CopyJob,
     template_values: &serde_json::Value,
+    app: &AppRecord,
     node: &NodeRecord,
     volumes_config: &[VolumeRecord],
     progress: Option<CopyProgressSlot>,
@@ -1023,7 +1030,7 @@ async fn copy_file_to_workspace(
         let rendered =
             maybe_inject_compose_labels(&job.target_path, &rendered, template_values, node)?;
         let (rendered, resolved) =
-            maybe_inject_compose_volumes(&job.target_path, rendered, node, volumes_config)?;
+            maybe_inject_compose_volumes(&job.target_path, rendered, app, node, volumes_config)?;
         let rendered_size = rendered.len() as u64;
         if let Some(progress) = progress.as_ref() {
             progress.begin_write_phase(rendered_size);
@@ -1067,7 +1074,7 @@ async fn copy_file_to_workspace(
         let rendered =
             maybe_inject_compose_labels(&job.target_path, &source, template_values, node)?;
         let (rendered, resolved) =
-            maybe_inject_compose_volumes(&job.target_path, rendered, node, volumes_config)?;
+            maybe_inject_compose_volumes(&job.target_path, rendered, app, node, volumes_config)?;
         let rendered_size = rendered.len() as u64;
         if let Some(progress) = progress.as_ref() {
             progress.begin_write_phase(rendered_size);
@@ -1129,6 +1136,7 @@ fn maybe_inject_compose_labels(
 fn maybe_inject_compose_volumes(
     path: &Path,
     content: String,
+    app: &AppRecord,
     node: &NodeRecord,
     volumes_config: &[VolumeRecord],
 ) -> anyhow::Result<(String, Vec<ResolvedVolume>)> {
@@ -1136,7 +1144,7 @@ fn maybe_inject_compose_volumes(
         return Ok((content, Vec::new()));
     }
     let node_name_str = node_name(node).to_string();
-    inject_compose_volumes(&content, &node_name_str, volumes_config)
+    inject_compose_volumes(&content, app, &node_name_str, volumes_config)
 }
 
 fn inject_compose_labels(

@@ -89,6 +89,8 @@ fn app_choice_label_includes_description_and_author() {
         dependencies: vec![],
         before: ScriptHook::default(),
         after: ScriptHook::default(),
+        volumes: vec![],
+        all_volume: false,
         files: None,
         values: vec![],
     };
@@ -202,6 +204,8 @@ values:
             dependencies: vec![],
             before: ScriptHook::default(),
             after: ScriptHook::default(),
+            volumes: vec![],
+            all_volume: false,
             files: None,
             values: vec![AppValue {
                 name: "image".into(),
@@ -271,6 +275,8 @@ services:
             dependencies: vec![],
             before: ScriptHook::default(),
             after: ScriptHook::default(),
+            volumes: vec![],
+            all_volume: false,
             files: None,
             values: vec![],
         },
@@ -347,6 +353,8 @@ services:
             dependencies: vec![],
             before: ScriptHook::default(),
             after: ScriptHook::default(),
+            volumes: vec![],
+            all_volume: false,
             files: None,
             values: vec![],
         },
@@ -466,6 +474,8 @@ fn build_template_values_prefers_value_then_default_then_option() {
         dependencies: vec![],
         before: ScriptHook::default(),
         after: ScriptHook::default(),
+        volumes: vec![],
+        all_volume: false,
         files: None,
         values: vec![
             AppValue {
@@ -538,6 +548,8 @@ fn apply_cli_values_overrides_default_and_option_values() {
         dependencies: vec![],
         before: ScriptHook::default(),
         after: ScriptHook::default(),
+        volumes: vec![],
+        all_volume: false,
         files: None,
         values: vec![
             AppValue {
@@ -591,6 +603,8 @@ fn apply_stored_values_overrides_matching_app_values() {
         dependencies: vec![],
         before: ScriptHook::default(),
         after: ScriptHook::default(),
+        volumes: vec![],
+        all_volume: false,
         files: None,
         values: vec![AppValue {
             name: "image".into(),
@@ -624,6 +638,8 @@ fn apply_stored_values_does_not_override_existing_cli_values() {
         dependencies: vec![],
         before: ScriptHook::default(),
         after: ScriptHook::default(),
+        volumes: vec![],
+        all_volume: false,
         files: None,
         values: vec![AppValue {
             name: "outbound_port".into(),
@@ -670,6 +686,8 @@ fn app_record(name: &str) -> AppRecord {
         dependencies: vec![],
         before: ScriptHook::default(),
         after: ScriptHook::default(),
+        volumes: vec![],
+        all_volume: false,
         files: None,
         values: vec![],
     }

@@ -12,6 +12,13 @@ author_email: <author_email>
 # Dependency service names, injected into provider env when installed
 dependencies:
   - service_name
+# Volume names this app requires on the target node (must match `ins volume` records).
+# On deploy, ins generates the top-level `volumes:` block in docker-compose for these.
+volumes:
+  - data
+# When true, every volume configured for the target node is attached to this app,
+# overriding the `volumes` list above. Defaults to false.
+all_volume: false
 # Before script
 before:
   shell: bash

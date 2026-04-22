@@ -124,6 +124,8 @@ values:
             dependencies: vec![],
             before: ScriptHook::default(),
             after: ScriptHook::default(),
+            volumes: vec![],
+            all_volume: false,
             files: None,
             values: vec![
                 AppValue {
@@ -189,10 +191,14 @@ async fn copy_apps_to_workspace_rewrites_compose_volumes_and_returns_resolved() 
     let home = unique_test_dir("pipeline-volume-inject");
     let app_dir = home.join("app").join("vol-demo");
     fs::create_dir_all(&app_dir).await?;
-    fs::write(app_dir.join("qa.yaml"), "name: vol-demo\nvalues: []\n").await?;
+    fs::write(
+        app_dir.join("qa.yaml"),
+        "name: vol-demo\nvalues: []\nvolumes:\n  - data\n",
+    )
+    .await?;
     fs::write(
         app_dir.join("docker-compose.yml"),
-        "services:\n  web:\n    image: nginx\n    volumes:\n      - data:/var/lib/app\nvolumes:\n  data: {}\n",
+        "services:\n  web:\n    image: nginx\n    volumes:\n      - data:/var/lib/app\n",
     )
     .await?;
 
@@ -208,8 +214,10 @@ async fn copy_apps_to_workspace_rewrites_compose_volumes_and_returns_resolved() 
             dependencies: vec![],
             before: ScriptHook::default(),
             after: ScriptHook::default(),
-            files: None,
             values: vec![],
+            volumes: vec!["data".into()],
+            all_volume: false,
+            files: None,
         },
         "vol-demo".into(),
     );

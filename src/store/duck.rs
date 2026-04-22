@@ -432,6 +432,8 @@ mod tests {
             dependencies: vec![],
             before: ScriptHook::default(),
             after: ScriptHook::default(),
+            volumes: vec![],
+            all_volume: false,
             files: None,
             values: vec![AppValue {
                 name: "image".into(),

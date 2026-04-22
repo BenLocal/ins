@@ -19,6 +19,7 @@ mod provider;
 mod store;
 mod tui;
 mod version;
+mod volume;
 
 #[tokio::main]
 async fn main() {

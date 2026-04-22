@@ -236,9 +236,13 @@ pub struct ResolvedVolume {
 Create `src/volume/mod.rs`:
 
 ```rust
+#![allow(dead_code)]
+
 pub(crate) mod list;
 pub mod types;
 ```
+
+The `#![allow(dead_code)]` keeps `cargo clippy -- -D warnings` clean while the types have no consumers yet. It is removed in Task 6 once the pipeline wires everything up.
 
 - [ ] **Step 4: Register volume module in main.rs**
 
@@ -1807,7 +1811,19 @@ Run: `cargo test --features duckdb-bundled copy_apps_to_workspace_rewrites`
 
 Expected: passes.
 
-- [ ] **Step 11: fmt + clippy**
+- [ ] **Step 11: Remove the temporary `#![allow(dead_code)]` in `src/volume/mod.rs`**
+
+All items declared in Task 1 now have real consumers (types via ProviderContext / inject path; list helpers via CLI; ResolvedVolume via pipeline). Delete the attribute line and the surrounding blank line so `src/volume/mod.rs` becomes:
+
+```rust
+pub(crate) mod compose;
+pub(crate) mod list;
+pub mod types;
+```
+
+Re-run `cargo clippy --all-targets --all-features -- -D warnings` to confirm nothing is left unused.
+
+- [ ] **Step 12: fmt + clippy**
 
 ```bash
 cargo fmt
@@ -1816,10 +1832,10 @@ cargo clippy --all-targets --all-features -- -D warnings
 
 Expected: clean.
 
-- [ ] **Step 12: Commit**
+- [ ] **Step 13: Commit**
 
 ```bash
-git add src/pipeline.rs src/provider/mod.rs
+git add src/pipeline.rs src/provider/mod.rs src/volume/mod.rs
 git commit -m "feat(volume): inject external volumes during deploy copy phase"
 ```
 

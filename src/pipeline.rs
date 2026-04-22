@@ -84,6 +84,7 @@ pub async fn prepare_deployment(
     requested_values: Vec<String>,
     requested_apps: Option<Vec<String>>,
 ) -> anyhow::Result<PreparedDeployment> {
+    let workspace = absolute_workspace(&workspace)?;
     let nodes = load_all_nodes(&nodes_file(home)).await?;
     let node = select_node(&nodes, requested_node.as_deref())?;
     let app_home = home.join("app");
@@ -100,6 +101,16 @@ pub async fn prepare_deployment(
         app_home,
         workspace,
         targets,
+    })
+}
+
+fn absolute_workspace(workspace: &Path) -> anyhow::Result<PathBuf> {
+    std::path::absolute(workspace).map_err(|e| {
+        anyhow!(
+            "resolve absolute workspace path {}: {}",
+            workspace.display(),
+            e
+        )
     })
 }
 
@@ -142,7 +153,7 @@ pub async fn prepare_installed_service_deployment(
         node,
         app_names: vec![service.app_name.clone()],
         app_home,
-        workspace: PathBuf::from(&service.workspace),
+        workspace: absolute_workspace(Path::new(&service.workspace))?,
         targets: vec![target],
     })
 }
@@ -257,30 +268,24 @@ fn print_provider_envs(
     envs: &BTreeMap<String, BTreeMap<String, String>>,
     output: &ExecutionOutput,
 ) {
-    output.line(format_provider_envs(envs));
-}
-
-fn format_provider_envs(envs: &BTreeMap<String, BTreeMap<String, String>>) -> String {
-    let mut lines = vec!["Provider Environment Variables:".to_string()];
+    output.line("Provider Environment Variables:");
 
     if envs.is_empty() {
-        lines.push("  (none)".to_string());
-        return lines.join("\n");
+        output.line("  (none)");
+        return;
     }
 
     for (service, service_envs) in envs {
-        lines.push(format!("  [{service}]"));
+        output.line(format!("  [{service}]"));
         if service_envs.is_empty() {
-            lines.push("    (none)".to_string());
+            output.line("    (none)");
             continue;
         }
 
         for (key, value) in service_envs {
-            lines.push(format!("    {key}={value}"));
+            output.line(format!("    {key}={value}"));
         }
     }
-
-    lines.join("\n")
 }
 
 pub fn select_node(nodes: &[NodeRecord], requested: Option<&str>) -> anyhow::Result<NodeRecord> {
@@ -405,6 +410,9 @@ pub async fn copy_apps_to_workspace_with_output(
         let source_dir = app_home.join(&target.app.name);
         let target_dir = workspace.join(&target.service);
 
+        let template_values = build_template_values(&target.app)?;
+        debug_print_template_values(&target.app.name, &template_values, output);
+
         if let Some(progress) = CopyAppProgress::new(
             &target.app.name,
             &target.service,
@@ -417,7 +425,7 @@ pub async fn copy_apps_to_workspace_with_output(
             let mut batch = copy_dir_recursive(
                 &source_dir,
                 &target_dir,
-                &target.app,
+                &template_values,
                 node,
                 volumes_config,
                 Some(progress.clone()),
@@ -436,7 +444,7 @@ pub async fn copy_apps_to_workspace_with_output(
             let mut batch = copy_dir_recursive(
                 &source_dir,
                 &target_dir,
-                &target.app,
+                &template_values,
                 node,
                 volumes_config,
                 None,
@@ -553,13 +561,12 @@ fn author_display(app: &AppRecord) -> Option<String> {
 async fn copy_dir_recursive(
     source: &Path,
     target: &Path,
-    app_record: &AppRecord,
+    template_values: &serde_json::Value,
     node: &NodeRecord,
     volumes_config: &[VolumeRecord],
     progress: Option<Arc<CopyAppProgress>>,
     output: &ExecutionOutput,
 ) -> anyhow::Result<Vec<ResolvedVolume>> {
-    let template_values = build_template_values(app_record)?;
     let jobs = collect_copy_jobs(source, target).await?;
     target_file_for_node(node).create_dir_all(target).await?;
 
@@ -1189,7 +1196,8 @@ fn labels_value_to_mapping(
 
 #[cfg(test)]
 mod tests {
-    use super::{format_provider_envs, prepare_installed_service_deployment};
+    use super::{prepare_installed_service_deployment, print_provider_envs};
+    use crate::execution_output::ExecutionOutput;
     use crate::{
         app::types::{AppRecord, AppValue, ScriptHook},
         cli::node::{NodeAddArgs, add_node_record, nodes_file},
@@ -1207,7 +1215,7 @@ mod tests {
     use tokio::fs;
 
     #[test]
-    fn format_provider_envs_lists_services_and_values_in_order() {
+    fn print_provider_envs_lists_services_and_values_in_order() {
         let envs = BTreeMap::from([
             (
                 "api".to_string(),
@@ -1222,18 +1230,46 @@ mod tests {
             ),
         ]);
 
-        let output = format_provider_envs(&envs);
+        let output = ExecutionOutput::buffered();
+        print_provider_envs(&envs, &output);
 
         assert_eq!(
-            output,
+            output.snapshot(),
             "Provider Environment Variables:\n  [api]\n    INS_APP_NAME=backend\n    INS_NODE_NAME=local\n  [worker]\n    INS_APP_NAME=jobs"
         );
     }
 
     #[test]
-    fn format_provider_envs_handles_empty_maps() {
-        let output = format_provider_envs(&BTreeMap::new());
-        assert_eq!(output, "Provider Environment Variables:\n  (none)");
+    fn print_provider_envs_handles_empty_maps() {
+        let output = ExecutionOutput::buffered();
+        print_provider_envs(&BTreeMap::new(), &output);
+        assert_eq!(
+            output.snapshot(),
+            "Provider Environment Variables:\n  (none)"
+        );
+    }
+
+    #[test]
+    fn absolute_workspace_resolves_relative_path_against_cwd() {
+        use super::absolute_workspace;
+        use std::path::Path;
+
+        let resolved = absolute_workspace(Path::new("./workspace")).expect("absolute");
+        assert!(
+            resolved.is_absolute(),
+            "expected absolute, got {:?}",
+            resolved
+        );
+        assert!(resolved.ends_with("workspace"));
+    }
+
+    #[test]
+    fn absolute_workspace_preserves_already_absolute_path() {
+        use super::absolute_workspace;
+        use std::path::Path;
+
+        let resolved = absolute_workspace(Path::new("/srv/ins-ws")).expect("absolute");
+        assert_eq!(resolved, Path::new("/srv/ins-ws"));
     }
 
     #[tokio::test]
@@ -1657,6 +1693,52 @@ async fn count_files_recursive(root: &Path) -> anyhow::Result<u64> {
     }
 
     Ok(count)
+}
+
+fn debug_print_template_values(
+    app_name: &str,
+    template_values: &serde_json::Value,
+    output: &ExecutionOutput,
+) {
+    output.line("----------------------------");
+    output.line(format!("[debug] template values for app '{app_name}':"));
+    for section in ["app", "vars"] {
+        let Some(value) = template_values.get(section) else {
+            continue;
+        };
+        let mut lines = Vec::new();
+        flatten_template_value(section, value, &mut lines);
+        for line in lines {
+            output.line(format!("      {line}"));
+        }
+    }
+    output.line("----------------------------");
+}
+
+fn flatten_template_value(prefix: &str, value: &serde_json::Value, out: &mut Vec<String>) {
+    match value {
+        serde_json::Value::Object(map) => {
+            if map.is_empty() {
+                out.push(format!("{prefix}={{}}"));
+            } else {
+                for (key, v) in map {
+                    flatten_template_value(&format!("{prefix}.{key}"), v, out);
+                }
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            if arr.is_empty() {
+                out.push(format!("{prefix}=[]"));
+            } else {
+                for (index, v) in arr.iter().enumerate() {
+                    flatten_template_value(&format!("{prefix}[{index}]"), v, out);
+                }
+            }
+        }
+        serde_json::Value::String(s) => out.push(format!("{prefix}={s}")),
+        serde_json::Value::Null => out.push(format!("{prefix}=null")),
+        other => out.push(format!("{prefix}={other}")),
+    }
 }
 
 fn render_template(source: &str, template_values: &serde_json::Value) -> anyhow::Result<String> {

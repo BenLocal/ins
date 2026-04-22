@@ -6,6 +6,7 @@ pub mod service;
 pub mod template;
 pub mod tui;
 pub mod version;
+pub mod volume;
 
 use std::path::PathBuf;
 

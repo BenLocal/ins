@@ -5,6 +5,7 @@ use crate::OutputFormat;
 use crate::app::types::AppRecord;
 use crate::node::types::{NodeRecord, RemoteNodeRecord};
 use crate::store::duck::InstalledServiceRecord;
+use crate::volume::types::VolumeRecord;
 
 pub(crate) trait TableRenderable {
     fn headers() -> &'static [&'static str];
@@ -149,6 +150,21 @@ impl TableRenderable for InstalledServiceRecord {
             self.node_name.clone(),
             self.workspace.clone(),
             self.created_at_ms.to_string(),
+        ]
+    }
+}
+
+impl TableRenderable for VolumeRecord {
+    fn headers() -> &'static [&'static str] {
+        &["name", "node", "type", "detail"]
+    }
+
+    fn row(&self) -> Vec<String> {
+        vec![
+            self.name().into(),
+            self.node().into(),
+            self.kind_label().into(),
+            self.detail_label(),
         ]
     }
 }

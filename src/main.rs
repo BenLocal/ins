@@ -4,7 +4,7 @@ use std::{env as std_env, fs, path::PathBuf};
 use crate::cli::{
     CommandContext, CommandTrait, app::AppCommand, check::CheckCommand, deploy::DeployCommand,
     node::NodeCommand, service::ServiceCommand, template::TemplateCommand, tui::TuiCommand,
-    version::VersionCommand,
+    version::VersionCommand, volume::VolumeCommand,
 };
 
 mod app;
@@ -114,6 +114,16 @@ async fn main() {
             )
             .await
         }
+        Some(Command::Volume(args)) => {
+            VolumeCommand::run(
+                args,
+                CommandContext {
+                    home,
+                    output: cli.output,
+                },
+            )
+            .await
+        }
         None => {
             InsCli::command().print_help().expect("print help");
             println!();
@@ -188,6 +198,8 @@ enum Command {
     Tui(cli::tui::TuiArgs),
     /// Show version, tag, and git commit information.
     Version(cli::version::VersionArgs),
+    /// Manage per-node Docker volume backings.
+    Volume(cli::volume::VolumeArgs),
 }
 
 #[cfg(test)]

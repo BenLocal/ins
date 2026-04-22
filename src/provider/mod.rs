@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use crate::execution_output::ExecutionOutput;
+use crate::volume::types::ResolvedVolume;
 use crate::{app::types::AppRecord, node::types::NodeRecord};
 
 pub mod docker_compose;
@@ -27,6 +28,8 @@ pub struct ProviderContext {
     pub workspace: PathBuf,
     pub envs: BTreeMap<String, BTreeMap<String, String>>,
     pub output: ExecutionOutput,
+    #[allow(dead_code)]
+    pub volumes: Vec<ResolvedVolume>,
 }
 
 impl ProviderContext {
@@ -37,6 +40,7 @@ impl ProviderContext {
         workspace: PathBuf,
         envs: BTreeMap<String, BTreeMap<String, String>>,
         output: ExecutionOutput,
+        volumes: Vec<ResolvedVolume>,
     ) -> Self {
         Self {
             provider,
@@ -45,6 +49,7 @@ impl ProviderContext {
             workspace,
             envs,
             output,
+            volumes,
         }
     }
 

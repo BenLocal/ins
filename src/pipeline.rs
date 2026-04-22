@@ -25,6 +25,9 @@ use crate::store::duck::{
     InstalledServiceRecord, StoredDeploymentRecord, load_installed_service_configs,
     load_latest_deployment_record, save_deployment_record,
 };
+use crate::volume::compose::inject_compose_volumes;
+use crate::volume::list::{load_volumes, volumes_file};
+use crate::volume::types::{ResolvedVolume, VolumeRecord};
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 
@@ -175,7 +178,7 @@ pub fn print_prepared_deployment_to_output(
 pub async fn copy_prepared_apps_to_workspace(
     home: &Path,
     prepared: &PreparedDeployment,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Vec<ResolvedVolume>> {
     let output = ExecutionOutput::stdout();
     copy_prepared_apps_to_workspace_with_output(home, prepared, &output).await
 }
@@ -184,13 +187,15 @@ pub async fn copy_prepared_apps_to_workspace_with_output(
     home: &Path,
     prepared: &PreparedDeployment,
     output: &ExecutionOutput,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Vec<ResolvedVolume>> {
+    let volumes_config = load_volumes(&volumes_file(home)).await?;
     copy_apps_to_workspace_with_output(
         home,
         &prepared.targets,
         &prepared.app_home,
         &prepared.workspace,
         &prepared.node,
+        &volumes_config,
         output,
     )
     .await
@@ -216,7 +221,8 @@ pub async fn execute_pipeline_with_output(
     let provider = ensure_supported_provider(&prepared.provider)?;
 
     print_prepared_deployment_to_output(title, &prepared, &output);
-    copy_prepared_apps_to_workspace_with_output(home, &prepared, &output).await?;
+    let resolved_volumes =
+        copy_prepared_apps_to_workspace_with_output(home, &prepared, &output).await?;
 
     let provider_ctx = ProviderContext::new(
         prepared.provider.clone(),
@@ -229,6 +235,7 @@ pub async fn execute_pipeline_with_output(
             &load_installed_service_configs(home).await?,
         )?,
         output.clone(),
+        resolved_volumes,
     );
 
     match mode {
@@ -361,7 +368,9 @@ pub async fn copy_apps_to_workspace(
     node: &NodeRecord,
 ) -> anyhow::Result<()> {
     let output = ExecutionOutput::stdout();
-    copy_apps_to_workspace_with_output(home, targets, app_home, workspace, node, &output).await
+    copy_apps_to_workspace_with_output(home, targets, app_home, workspace, node, &[], &output)
+        .await?;
+    Ok(())
 }
 
 pub async fn copy_apps_to_workspace_with_output(
@@ -370,13 +379,13 @@ pub async fn copy_apps_to_workspace_with_output(
     app_home: &Path,
     workspace: &Path,
     node: &NodeRecord,
+    volumes_config: &[VolumeRecord],
     output: &ExecutionOutput,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Vec<ResolvedVolume>> {
     output.line("Saving deployment records...");
     for target in targets {
         let source_dir = app_home.join(&target.app.name);
         let qa_file = app_qa_file(&source_dir);
-        // save deployment record
         let qa_yaml = fs::read_to_string(&qa_file)
             .await
             .map_err(|e| anyhow!("read qa file {}: {}", qa_file.display(), e))?;
@@ -388,6 +397,8 @@ pub async fn copy_apps_to_workspace_with_output(
     }
 
     target_file_for_node(node).create_dir_all(workspace).await?;
+
+    let mut resolved_volumes: Vec<ResolvedVolume> = Vec::new();
 
     output.line("Copying app files to workspace...");
     for target in targets {
@@ -403,15 +414,17 @@ pub async fn copy_apps_to_workspace_with_output(
         )
         .await?
         {
-            copy_dir_recursive(
+            let mut batch = copy_dir_recursive(
                 &source_dir,
                 &target_dir,
                 &target.app,
                 node,
+                volumes_config,
                 Some(progress.clone()),
                 output,
             )
             .await?;
+            resolved_volumes.append(&mut batch);
             progress.finish();
         } else {
             output.line(format!(
@@ -420,11 +433,32 @@ pub async fn copy_apps_to_workspace_with_output(
                 target.service,
                 target_dir.display()
             ));
-            copy_dir_recursive(&source_dir, &target_dir, &target.app, node, None, output).await?;
+            let mut batch = copy_dir_recursive(
+                &source_dir,
+                &target_dir,
+                &target.app,
+                node,
+                volumes_config,
+                None,
+                output,
+            )
+            .await?;
+            resolved_volumes.append(&mut batch);
         }
     }
 
-    Ok(())
+    Ok(dedupe_volumes(resolved_volumes))
+}
+
+fn dedupe_volumes(volumes: Vec<ResolvedVolume>) -> Vec<ResolvedVolume> {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut result = Vec::new();
+    for v in volumes {
+        if seen.insert(v.docker_name.clone()) {
+            result.push(v);
+        }
+    }
+    result
 }
 
 async fn load_available_app_choices(app_home: &Path) -> anyhow::Result<Vec<AppChoice>> {
@@ -521,20 +555,22 @@ async fn copy_dir_recursive(
     target: &Path,
     app_record: &AppRecord,
     node: &NodeRecord,
+    volumes_config: &[VolumeRecord],
     progress: Option<Arc<CopyAppProgress>>,
     output: &ExecutionOutput,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Vec<ResolvedVolume>> {
     let template_values = build_template_values(app_record)?;
     let jobs = collect_copy_jobs(source, target).await?;
     target_file_for_node(node).create_dir_all(target).await?;
 
     if jobs.is_empty() {
-        return Ok(());
+        return Ok(Vec::new());
     }
 
     let mut join_set = JoinSet::new();
     let mut next_job = 0usize;
     let mut available_slots: Vec<usize> = (0..COPY_CONCURRENCY.min(jobs.len())).rev().collect();
+    let mut resolved = Vec::new();
 
     loop {
         while next_job < jobs.len() && !available_slots.is_empty() {
@@ -542,12 +578,19 @@ async fn copy_dir_recursive(
             let job = jobs[next_job].clone();
             let template_values = template_values.clone();
             let node = node.clone();
+            let volumes_config = volumes_config.to_vec();
             let output = output.clone();
             let slot_progress = progress.as_ref().map(|progress| progress.slot(slot));
             join_set.spawn(async move {
-                let result =
-                    copy_file_to_workspace(job, &template_values, &node, slot_progress, &output)
-                        .await;
+                let result = copy_file_to_workspace(
+                    job,
+                    &template_values,
+                    &node,
+                    &volumes_config,
+                    slot_progress,
+                    &output,
+                )
+                .await;
                 (slot, result)
             });
             next_job += 1;
@@ -557,11 +600,12 @@ async fn copy_dir_recursive(
             break;
         };
         let (slot, result) = joined.map_err(|e| anyhow!("copy task join error: {}", e))?;
-        result?;
+        let mut batch = result?;
+        resolved.append(&mut batch);
         available_slots.push(slot);
     }
 
-    Ok(())
+    Ok(resolved)
 }
 
 pub fn build_template_values(app_record: &AppRecord) -> anyhow::Result<Value> {
@@ -936,9 +980,10 @@ async fn copy_file_to_workspace(
     job: CopyJob,
     template_values: &serde_json::Value,
     node: &NodeRecord,
+    volumes_config: &[VolumeRecord],
     progress: Option<CopyProgressSlot>,
     output: &ExecutionOutput,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Vec<ResolvedVolume>> {
     let source_file = LocalFile;
     let target_file = target_file_for_node(node);
 
@@ -959,6 +1004,8 @@ async fn copy_file_to_workspace(
         let rendered = render_template(&source, template_values)?;
         let rendered =
             maybe_inject_compose_labels(&job.target_path, &rendered, template_values, node)?;
+        let (rendered, resolved) =
+            maybe_inject_compose_volumes(&job.target_path, rendered, node, volumes_config)?;
         let rendered_size = rendered.len() as u64;
         if let Some(progress) = progress.as_ref() {
             progress.begin_write_phase(rendered_size);
@@ -971,7 +1018,7 @@ async fn copy_file_to_workspace(
         if let Some(progress) = progress.as_ref() {
             progress.finish_file();
         }
-        return Ok(());
+        return Ok(resolved);
     }
 
     let source_meta = fs::metadata(&job.source_path)
@@ -1001,6 +1048,8 @@ async fn copy_file_to_workspace(
         })?;
         let rendered =
             maybe_inject_compose_labels(&job.target_path, &source, template_values, node)?;
+        let (rendered, resolved) =
+            maybe_inject_compose_volumes(&job.target_path, rendered, node, volumes_config)?;
         let rendered_size = rendered.len() as u64;
         if let Some(progress) = progress.as_ref() {
             progress.begin_write_phase(rendered_size);
@@ -1013,7 +1062,7 @@ async fn copy_file_to_workspace(
         if let Some(progress) = progress.as_ref() {
             progress.finish_file();
         }
-        return Ok(());
+        return Ok(resolved);
     }
     if let Some(progress) = progress.as_ref() {
         progress.begin_write_phase(source_size);
@@ -1033,7 +1082,7 @@ async fn copy_file_to_workspace(
     if let Some(progress) = progress.as_ref() {
         progress.finish_file();
     }
-    Ok(())
+    Ok(Vec::new())
 }
 
 fn is_docker_compose_file(path: &Path) -> bool {
@@ -1057,6 +1106,19 @@ fn maybe_inject_compose_labels(
         content,
         &build_compose_metadata_labels(template_values, node),
     )
+}
+
+fn maybe_inject_compose_volumes(
+    path: &Path,
+    content: String,
+    node: &NodeRecord,
+    volumes_config: &[VolumeRecord],
+) -> anyhow::Result<(String, Vec<ResolvedVolume>)> {
+    if !is_docker_compose_file(path) {
+        return Ok((content, Vec::new()));
+    }
+    let node_name_str = node_name(node).to_string();
+    inject_compose_volumes(&content, &node_name_str, volumes_config)
 }
 
 fn inject_compose_labels(
@@ -1275,6 +1337,71 @@ values:
             Some(json!("nginx:1.27"))
         );
         assert_eq!(prepared.targets[0].app.values[1].value, Some(json!(8080)));
+
+        fs::remove_dir_all(&home).await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn copy_apps_to_workspace_rewrites_compose_volumes_and_returns_resolved()
+    -> anyhow::Result<()> {
+        use crate::pipeline::copy_apps_to_workspace_with_output;
+        use crate::provider::DeploymentTarget;
+
+        let home = unique_test_dir("pipeline-volume-inject");
+        let app_dir = home.join("app").join("vol-demo");
+        fs::create_dir_all(&app_dir).await?;
+        fs::write(app_dir.join("qa.yaml"), "name: vol-demo\nvalues: []\n").await?;
+        fs::write(
+            app_dir.join("docker-compose.yml"),
+            "services:\n  web:\n    image: nginx\n    volumes:\n      - data:/var/lib/app\nvolumes:\n  data: {}\n",
+        )
+        .await?;
+
+        let node = NodeRecord::Local();
+        let workspace = home.join("workspace");
+        let target = DeploymentTarget::new(
+            AppRecord {
+                name: "vol-demo".into(),
+                version: None,
+                description: None,
+                author_name: None,
+                author_email: None,
+                dependencies: vec![],
+                before: ScriptHook::default(),
+                after: ScriptHook::default(),
+                files: None,
+                values: vec![],
+            },
+            "vol-demo".into(),
+        );
+
+        let volumes_config = vec![crate::volume::types::VolumeRecord::Filesystem(
+            crate::volume::types::FilesystemVolume {
+                name: "data".into(),
+                node: "local".into(),
+                path: "/mnt/data".into(),
+            },
+        )];
+
+        let resolved = copy_apps_to_workspace_with_output(
+            &home,
+            std::slice::from_ref(&target),
+            &home.join("app"),
+            &workspace,
+            &node,
+            &volumes_config,
+            &crate::execution_output::ExecutionOutput::stdout(),
+        )
+        .await?;
+
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].docker_name, "ins_data");
+
+        let rendered =
+            fs::read_to_string(workspace.join("vol-demo").join("docker-compose.yml")).await?;
+        assert!(rendered.contains("external: true"));
+        assert!(rendered.contains("ins_data"));
 
         fs::remove_dir_all(&home).await?;
         Ok(())

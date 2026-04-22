@@ -58,6 +58,8 @@ impl VolumeRecord {
 #[derive(Clone, Debug)]
 pub struct ResolvedVolume {
     pub docker_name: String,
+    #[allow(dead_code)]
     pub driver: String,
+    #[allow(dead_code)]
     pub driver_opts: BTreeMap<String, String>,
 }

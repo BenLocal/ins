@@ -258,6 +258,9 @@ impl ProviderTrait for DockerComposeProvider {
                 let remote_file = remote_file(remote);
                 let compose_command = resolve_remote_compose_command(&remote_file).await?;
 
+                ensure_volumes_remote(&remote_file, &remote.name, &ctx.volumes, &ctx.output)
+                    .await?;
+
                 for target in &ctx.targets {
                     let app_dir = ctx.workspace.join(&target.service);
                     let envs = ctx.env_for_target(&target.service);
@@ -630,9 +633,6 @@ fn terminate_process_group(child: &Child, signal: &str) {
     }
 }
 
-// Consumed by `docker_volume_ensure_shell_command` in Task 8 (remote path);
-// the local path uses `Command::arg` directly. Remove this attribute when Task 8 lands.
-#[allow(dead_code)]
 fn docker_volume_create_shell_command(volume: &ResolvedVolume) -> String {
     let mut parts = vec![
         "docker".to_string(),
@@ -647,6 +647,17 @@ fn docker_volume_create_shell_command(volume: &ResolvedVolume) -> String {
     }
     parts.push(crate::env::shell_quote(&volume.docker_name));
     parts.join(" ")
+}
+
+fn docker_volume_ensure_shell_command(volume: &ResolvedVolume) -> String {
+    let inspect_name = crate::env::shell_quote(&volume.docker_name);
+    let create_cmd = docker_volume_create_shell_command(volume);
+    format!(
+        "if docker volume inspect {inspect_name} >/dev/null 2>&1; then \
+echo \"volume {} already exists\"; \
+else {create_cmd}; fi",
+        volume.docker_name
+    )
 }
 
 async fn ensure_volumes_local(
@@ -692,6 +703,41 @@ async fn ensure_volumes_local(
                 "docker volume create failed for '{}' (exit code {:?})",
                 volume.docker_name,
                 result.status.code()
+            ));
+        }
+    }
+    Ok(())
+}
+
+async fn ensure_volumes_remote(
+    remote_file: &RemoteFile,
+    node_name: &str,
+    volumes: &[ResolvedVolume],
+    output: &ExecutionOutput,
+) -> anyhow::Result<()> {
+    for volume in volumes {
+        output.line(format!(
+            "Ensuring docker volume '{}' on remote node '{}'",
+            volume.docker_name, node_name
+        ));
+        let command = docker_volume_ensure_shell_command(volume);
+        let result = remote_file.exec(&command).await.with_context(|| {
+            format!(
+                "ensure docker volume '{}' on node '{}'",
+                volume.docker_name, node_name
+            )
+        })?;
+        let rendered = render_remote_output(&result.stdout, &result.stderr);
+        if rendered != "no remote output" {
+            output.line(rendered.clone());
+        }
+        if result.exit_status != 0 {
+            return Err(anyhow!(
+                "ensure docker volume '{}' failed on node '{}' (exit {})\n{}",
+                volume.docker_name,
+                node_name,
+                result.exit_status,
+                rendered
             ));
         }
     }
@@ -762,5 +808,17 @@ mod tests {
         let cmd = super::docker_volume_create_shell_command(&volume);
         assert!(cmd.contains("--opt 'o=username=alice,password=pa ss!word'"));
         assert!(cmd.contains("--opt 'device=//10.0.0.5/share'"));
+    }
+
+    #[test]
+    fn docker_volume_ensure_remote_shell_command_has_inspect_guard() {
+        let volume = resolved(
+            "ins_data",
+            &[("type", "none"), ("o", "bind"), ("device", "/mnt/data")],
+        );
+        let cmd = super::docker_volume_ensure_shell_command(&volume);
+        assert!(cmd.contains("docker volume inspect 'ins_data'"));
+        assert!(cmd.contains("docker volume create"));
+        assert!(cmd.contains("--opt 'device=/mnt/data'"));
     }
 }

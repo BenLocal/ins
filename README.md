@@ -99,6 +99,23 @@ ins deploy \
   nginx
 ```
 
+### Volumes
+
+Configure per-node Docker volume backings. The same logical volume name can map to a local bind mount on one node and a CIFS share on another.
+
+```bash
+ins volume add filesystem --name data --node node1 --path /mnt/data
+ins volume add cifs --name data --node node2 \
+  --server //10.0.0.5/share --username alice --password secret
+ins volume list
+ins volume set filesystem --name data --node node1 --path /mnt/new
+ins volume delete --name data --node node1
+```
+
+Apps declare volumes with standard Docker Compose syntax (top-level `volumes: { data: {} }`, referenced by services). On deploy, `ins` rewrites each top-level volume to `external: true, name: ins_<name>` and runs `docker volume create` on the target node before `docker compose up -d`.
+
+See [docs/volume-command.md](docs/volume-command.md) for the full flow.
+
 ## App Templates
 
 Each app lives under `.ins/app/<app>/` and should include `qa.yaml`. Template files such as `docker-compose.yaml.j2` or `nginx.conf.j2` are rendered into the target workspace directory. Normal files are copied as-is.

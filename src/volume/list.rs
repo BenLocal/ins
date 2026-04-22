@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use anyhow::Context;
 use tokio::fs;
 
-use crate::volume::types::VolumeRecord;
+use crate::volume::types::{CifsVolume, FilesystemVolume, VolumeRecord};
 
 pub(crate) fn volumes_file(home: &Path) -> PathBuf {
     home.join("volumes.json")
@@ -33,6 +33,49 @@ pub(crate) async fn save_volumes(path: &Path, volumes: &[VolumeRecord]) -> anyho
     fs::write(path, format!("{content}\n"))
         .await
         .with_context(|| format!("write volumes file {}", path.display()))?;
+    Ok(())
+}
+
+pub(crate) async fn add_filesystem(
+    path: &Path,
+    name: &str,
+    node: &str,
+    host_path: &str,
+) -> anyhow::Result<()> {
+    let mut volumes = load_volumes(path).await?;
+    ensure_unique(&volumes, name, node)?;
+    volumes.push(VolumeRecord::Filesystem(FilesystemVolume {
+        name: name.to_string(),
+        node: node.to_string(),
+        path: host_path.to_string(),
+    }));
+    save_volumes(path, &volumes).await
+}
+
+pub(crate) async fn add_cifs(
+    path: &Path,
+    name: &str,
+    node: &str,
+    server: &str,
+    username: &str,
+    password: &str,
+) -> anyhow::Result<()> {
+    let mut volumes = load_volumes(path).await?;
+    ensure_unique(&volumes, name, node)?;
+    volumes.push(VolumeRecord::Cifs(CifsVolume {
+        name: name.to_string(),
+        node: node.to_string(),
+        server: server.to_string(),
+        username: username.to_string(),
+        password: password.to_string(),
+    }));
+    save_volumes(path, &volumes).await
+}
+
+fn ensure_unique(volumes: &[VolumeRecord], name: &str, node: &str) -> anyhow::Result<()> {
+    if volumes.iter().any(|v| v.name() == name && v.node() == node) {
+        anyhow::bail!("volume '{}' on node '{}' already exists", name, node);
+    }
     Ok(())
 }
 
@@ -100,6 +143,43 @@ mod tests {
             _ => panic!("expected cifs"),
         }
 
+        tokio::fs::remove_file(&path).await.ok();
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn add_filesystem_persists_record() -> anyhow::Result<()> {
+        let path = unique_test_path("add-fs");
+        add_filesystem(&path, "data", "node1", "/mnt/data").await?;
+        let loaded = load_volumes(&path).await?;
+        assert_eq!(loaded.len(), 1);
+        match &loaded[0] {
+            VolumeRecord::Filesystem(v) => {
+                assert_eq!(v.name, "data");
+                assert_eq!(v.node, "node1");
+                assert_eq!(v.path, "/mnt/data");
+            }
+            _ => panic!("expected filesystem"),
+        }
+        tokio::fs::remove_file(&path).await.ok();
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn add_rejects_duplicate_name_node_pair() -> anyhow::Result<()> {
+        let path = unique_test_path("dup");
+        add_filesystem(&path, "data", "node1", "/mnt/a").await?;
+        let err = add_cifs(
+            &path,
+            "data",
+            "node1",
+            "//10.0.0.5/share",
+            "alice",
+            "secret",
+        )
+        .await
+        .expect_err("duplicate should fail");
+        assert!(err.to_string().contains("already exists"));
         tokio::fs::remove_file(&path).await.ok();
         Ok(())
     }

@@ -11,6 +11,7 @@ use crate::execution_output::ExecutionOutput;
 use crate::file::remote::RemoteFile;
 use crate::node::types::NodeRecord;
 use crate::provider::{ProviderContext, ProviderTrait};
+use crate::volume::types::ResolvedVolume;
 
 pub struct DockerComposeProvider;
 
@@ -166,6 +167,8 @@ impl ProviderTrait for DockerComposeProvider {
         match &ctx.node {
             NodeRecord::Local() => {
                 let compose_command = resolve_local_compose_command(&ctx.output).await?;
+
+                ensure_volumes_local(&ctx.volumes, &ctx.output).await?;
 
                 for target in &ctx.targets {
                     let app_dir = ctx.workspace.join(&target.service);
@@ -627,11 +630,92 @@ fn terminate_process_group(child: &Child, signal: &str) {
     }
 }
 
+// Consumed by `docker_volume_ensure_shell_command` in Task 8 (remote path);
+// the local path uses `Command::arg` directly. Remove this attribute when Task 8 lands.
+#[allow(dead_code)]
+fn docker_volume_create_shell_command(volume: &ResolvedVolume) -> String {
+    let mut parts = vec![
+        "docker".to_string(),
+        "volume".to_string(),
+        "create".to_string(),
+        "--driver".to_string(),
+        crate::env::shell_quote(&volume.driver),
+    ];
+    for (k, v) in &volume.driver_opts {
+        parts.push("--opt".to_string());
+        parts.push(crate::env::shell_quote(&format!("{k}={v}")));
+    }
+    parts.push(crate::env::shell_quote(&volume.docker_name));
+    parts.join(" ")
+}
+
+async fn ensure_volumes_local(
+    volumes: &[ResolvedVolume],
+    output: &ExecutionOutput,
+) -> anyhow::Result<()> {
+    for volume in volumes {
+        let inspect = Command::new("docker")
+            .args(["volume", "inspect", &volume.docker_name])
+            .output()
+            .await
+            .context("run 'docker volume inspect'")?;
+        if inspect.status.success() {
+            output.line(format!(
+                "Reusing existing docker volume '{}'",
+                volume.docker_name
+            ));
+            continue;
+        }
+
+        output.line(format!(
+            "Creating docker volume '{}' ({})",
+            volume.docker_name, volume.driver
+        ));
+
+        let mut create = Command::new("docker");
+        create
+            .arg("volume")
+            .arg("create")
+            .arg("--driver")
+            .arg(&volume.driver);
+        for (k, v) in &volume.driver_opts {
+            create.arg("--opt").arg(format!("{k}={v}"));
+        }
+        create.arg(&volume.docker_name);
+        let result = create
+            .output()
+            .await
+            .with_context(|| format!("run docker volume create for '{}'", volume.docker_name))?;
+        append_command_output(output, &result.stdout, &result.stderr);
+        if !result.status.success() {
+            return Err(anyhow!(
+                "docker volume create failed for '{}' (exit code {:?})",
+                volume.docker_name,
+                result.status.code()
+            ));
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{ComposeCommandKind, docker_compose_shell_command};
+    use crate::volume::types::ResolvedVolume;
     use std::collections::BTreeMap;
     use std::path::Path;
+
+    fn resolved(name: &str, opts: &[(&str, &str)]) -> ResolvedVolume {
+        let mut map = BTreeMap::new();
+        for (k, v) in opts {
+            map.insert((*k).into(), (*v).into());
+        }
+        ResolvedVolume {
+            docker_name: name.into(),
+            driver: "local".into(),
+            driver_opts: map,
+        }
+    }
 
     #[test]
     fn docker_compose_shell_command_prefixes_env_exports() {
@@ -648,5 +732,35 @@ mod tests {
         assert!(command.contains("IMAGE_TAG='v1'"));
         assert!(command.contains("INS_NODE_NAME='node-a'"));
         assert!(command.contains("docker compose -f \"$compose_file\" config -q"));
+    }
+
+    #[test]
+    fn docker_volume_create_command_includes_all_opts_for_filesystem() {
+        let volume = resolved(
+            "ins_data",
+            &[("type", "none"), ("o", "bind"), ("device", "/mnt/data")],
+        );
+        let cmd = super::docker_volume_create_shell_command(&volume);
+        assert!(cmd.contains("docker volume create"));
+        assert!(cmd.contains("--driver 'local'"));
+        assert!(cmd.contains("--opt 'type=none'"));
+        assert!(cmd.contains("--opt 'o=bind'"));
+        assert!(cmd.contains("--opt 'device=/mnt/data'"));
+        assert!(cmd.contains("'ins_data'"));
+    }
+
+    #[test]
+    fn docker_volume_create_command_quotes_cifs_credentials() {
+        let volume = resolved(
+            "ins_secret",
+            &[
+                ("type", "cifs"),
+                ("o", "username=alice,password=pa ss!word"),
+                ("device", "//10.0.0.5/share"),
+            ],
+        );
+        let cmd = super::docker_volume_create_shell_command(&volume);
+        assert!(cmd.contains("--opt 'o=username=alice,password=pa ss!word'"));
+        assert!(cmd.contains("--opt 'device=//10.0.0.5/share'"));
     }
 }

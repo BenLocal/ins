@@ -28,7 +28,6 @@ pub struct ProviderContext {
     pub workspace: PathBuf,
     pub envs: BTreeMap<String, BTreeMap<String, String>>,
     pub output: ExecutionOutput,
-    #[allow(dead_code)]
     pub volumes: Vec<ResolvedVolume>,
 }
 

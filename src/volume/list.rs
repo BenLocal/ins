@@ -79,6 +79,56 @@ fn ensure_unique(volumes: &[VolumeRecord], name: &str, node: &str) -> anyhow::Re
     Ok(())
 }
 
+pub(crate) async fn set_filesystem(
+    path: &Path,
+    name: &str,
+    node: &str,
+    host_path: &str,
+) -> anyhow::Result<()> {
+    let mut volumes = load_volumes(path).await?;
+    let index = find_index(&volumes, name, node)?;
+    volumes[index] = VolumeRecord::Filesystem(FilesystemVolume {
+        name: name.to_string(),
+        node: node.to_string(),
+        path: host_path.to_string(),
+    });
+    save_volumes(path, &volumes).await
+}
+
+pub(crate) async fn set_cifs(
+    path: &Path,
+    name: &str,
+    node: &str,
+    server: &str,
+    username: &str,
+    password: &str,
+) -> anyhow::Result<()> {
+    let mut volumes = load_volumes(path).await?;
+    let index = find_index(&volumes, name, node)?;
+    volumes[index] = VolumeRecord::Cifs(CifsVolume {
+        name: name.to_string(),
+        node: node.to_string(),
+        server: server.to_string(),
+        username: username.to_string(),
+        password: password.to_string(),
+    });
+    save_volumes(path, &volumes).await
+}
+
+pub(crate) async fn delete_volume(path: &Path, name: &str, node: &str) -> anyhow::Result<()> {
+    let mut volumes = load_volumes(path).await?;
+    let index = find_index(&volumes, name, node)?;
+    volumes.remove(index);
+    save_volumes(path, &volumes).await
+}
+
+fn find_index(volumes: &[VolumeRecord], name: &str, node: &str) -> anyhow::Result<usize> {
+    volumes
+        .iter()
+        .position(|v| v.name() == name && v.node() == node)
+        .ok_or_else(|| anyhow::anyhow!("volume '{}' on node '{}' not found", name, node))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -180,6 +230,75 @@ mod tests {
         .await
         .expect_err("duplicate should fail");
         assert!(err.to_string().contains("already exists"));
+        tokio::fs::remove_file(&path).await.ok();
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn set_filesystem_updates_existing_record() -> anyhow::Result<()> {
+        let path = unique_test_path("set-fs");
+        add_filesystem(&path, "data", "node1", "/mnt/old").await?;
+        set_filesystem(&path, "data", "node1", "/mnt/new").await?;
+        let loaded = load_volumes(&path).await?;
+        assert_eq!(loaded.len(), 1);
+        match &loaded[0] {
+            VolumeRecord::Filesystem(v) => assert_eq!(v.path, "/mnt/new"),
+            _ => panic!("expected filesystem"),
+        }
+        tokio::fs::remove_file(&path).await.ok();
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn set_changes_type_when_switching_filesystem_to_cifs() -> anyhow::Result<()> {
+        let path = unique_test_path("set-switch");
+        add_filesystem(&path, "data", "node1", "/mnt/a").await?;
+        set_cifs(
+            &path,
+            "data",
+            "node1",
+            "//10.0.0.5/share",
+            "alice",
+            "secret",
+        )
+        .await?;
+        let loaded = load_volumes(&path).await?;
+        assert!(matches!(&loaded[0], VolumeRecord::Cifs(_)));
+        tokio::fs::remove_file(&path).await.ok();
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn set_errors_when_volume_missing() -> anyhow::Result<()> {
+        let path = unique_test_path("set-miss");
+        let err = set_filesystem(&path, "data", "node1", "/mnt/new")
+            .await
+            .expect_err("missing record should fail");
+        assert!(err.to_string().contains("not found"));
+        tokio::fs::remove_file(&path).await.ok();
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn delete_removes_single_record_by_name_and_node() -> anyhow::Result<()> {
+        let path = unique_test_path("delete");
+        add_filesystem(&path, "data", "node1", "/mnt/a").await?;
+        add_filesystem(&path, "data", "node2", "/mnt/b").await?;
+        delete_volume(&path, "data", "node1").await?;
+        let loaded = load_volumes(&path).await?;
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].node(), "node2");
+        tokio::fs::remove_file(&path).await.ok();
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn delete_errors_when_volume_missing() -> anyhow::Result<()> {
+        let path = unique_test_path("delete-miss");
+        let err = delete_volume(&path, "data", "node1")
+            .await
+            .expect_err("missing record should fail");
+        assert!(err.to_string().contains("not found"));
         tokio::fs::remove_file(&path).await.ok();
         Ok(())
     }

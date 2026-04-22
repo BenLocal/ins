@@ -20,6 +20,10 @@ pub struct VolumeArgs {
 pub enum VolumeSubcommand {
     /// Add a volume backing for a node.
     Add(VolumeAddArgs),
+    /// Update an existing volume backing.
+    Set(VolumeSetArgs),
+    /// Delete a volume backing.
+    Delete(VolumeDeleteArgs),
     /// List configured volumes.
     List(VolumeListArgs),
 }
@@ -37,6 +41,8 @@ impl CommandTrait for VolumeCommand {
         let path = volumes_file(&ctx.home);
         match args.command {
             VolumeSubcommand::Add(add_args) => add_volume(&ctx.home, &path, add_args).await,
+            VolumeSubcommand::Set(set_args) => set_volume(&ctx.home, &path, set_args).await,
+            VolumeSubcommand::Delete(delete_args) => delete_volume_cmd(&path, delete_args).await,
             VolumeSubcommand::List(_) => list_volumes(&path, ctx.output).await,
         }
     }
@@ -166,5 +172,57 @@ fn validate_cifs_server(server: &str) -> anyhow::Result<()> {
     if !server.starts_with("//") {
         anyhow::bail!("cifs server must start with '//' (got '{}')", server);
     }
+    Ok(())
+}
+
+#[derive(clap::Args, Clone, Debug)]
+pub struct VolumeSetArgs {
+    #[command(subcommand)]
+    pub kind: VolumeTypeArgs,
+}
+
+#[derive(clap::Args, Clone, Debug)]
+pub struct VolumeDeleteArgs {
+    /// Logical volume name.
+    #[arg(short, long)]
+    pub name: String,
+    /// Target node name.
+    #[arg(long)]
+    pub node: String,
+}
+
+async fn set_volume(home: &Path, path: &Path, args: VolumeSetArgs) -> anyhow::Result<()> {
+    match args.kind {
+        VolumeTypeArgs::Filesystem(fs) => {
+            validate_name(&fs.name)?;
+            validate_node(home, &fs.node).await?;
+            validate_filesystem_path(&fs.path)?;
+            crate::volume::list::set_filesystem(path, &fs.name, &fs.node, &fs.path).await?;
+            println!("volume set filesystem");
+            Ok(())
+        }
+        VolumeTypeArgs::Cifs(cifs) => {
+            validate_name(&cifs.name)?;
+            validate_node(home, &cifs.node).await?;
+            validate_cifs_server(&cifs.server)?;
+            crate::volume::list::set_cifs(
+                path,
+                &cifs.name,
+                &cifs.node,
+                &cifs.server,
+                &cifs.username,
+                &cifs.password,
+            )
+            .await?;
+            println!("volume set cifs");
+            Ok(())
+        }
+    }
+}
+
+async fn delete_volume_cmd(path: &Path, args: VolumeDeleteArgs) -> anyhow::Result<()> {
+    validate_name(&args.name)?;
+    crate::volume::list::delete_volume(path, &args.name, &args.node).await?;
+    println!("volume delete");
     Ok(())
 }

@@ -89,7 +89,10 @@ fn resolve_workspace(
 
 pub(super) fn resolve_app_home(home: &Path, config: &InsConfig) -> PathBuf {
     match config.app_home_override() {
-        Some(path) => PathBuf::from(path),
+        Some(path) => {
+            let p = PathBuf::from(path);
+            if p.is_absolute() { p } else { home.join(p) }
+        }
         None => home.join("app"),
     }
 }

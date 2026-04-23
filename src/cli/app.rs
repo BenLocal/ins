@@ -42,7 +42,7 @@ impl CommandTrait for AppCommand {
     type Args = AppArgs;
 
     async fn run(args: AppArgs, ctx: CommandContext) -> anyhow::Result<()> {
-        let app_home = ctx.home.join("app");
+        let app_home = ctx.app_home();
         fs::create_dir_all(&app_home)
             .await
             .with_context(|| format!("create app home {}", app_home.display()))?;

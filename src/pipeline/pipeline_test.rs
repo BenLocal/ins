@@ -214,6 +214,7 @@ async fn copy_apps_to_workspace_rewrites_compose_volumes_and_returns_resolved() 
         },
     )];
 
+    let probe_cache = std::sync::Arc::new(crate::pipeline::ProbeCache::new(node.clone()));
     let resolved = copy_apps_to_workspace_with_output(
         &home,
         std::slice::from_ref(&target),
@@ -221,6 +222,7 @@ async fn copy_apps_to_workspace_rewrites_compose_volumes_and_returns_resolved() 
         &workspace,
         &node,
         &volumes_config,
+        &probe_cache,
         &crate::execution_output::ExecutionOutput::stdout(),
     )
     .await?;

@@ -45,11 +45,22 @@ pub async fn copy_apps_to_workspace(
     node: &NodeRecord,
 ) -> anyhow::Result<()> {
     let output = ExecutionOutput::stdout();
-    copy_apps_to_workspace_with_output(home, targets, app_home, workspace, node, &[], &output)
-        .await?;
+    let probe_cache = Arc::new(ProbeCache::new(node.clone()));
+    copy_apps_to_workspace_with_output(
+        home,
+        targets,
+        app_home,
+        workspace,
+        node,
+        &[],
+        &probe_cache,
+        &output,
+    )
+    .await?;
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn copy_apps_to_workspace_with_output(
     home: &Path,
     targets: &[DeploymentTarget],
@@ -57,6 +68,7 @@ pub async fn copy_apps_to_workspace_with_output(
     workspace: &Path,
     node: &NodeRecord,
     volumes_config: &[VolumeRecord],
+    probe_cache: &Arc<ProbeCache>,
     output: &ExecutionOutput,
 ) -> anyhow::Result<Vec<ResolvedVolume>> {
     output.line("Saving deployment records...");
@@ -76,10 +88,6 @@ pub async fn copy_apps_to_workspace_with_output(
     target_file_for_node(node).create_dir_all(workspace).await?;
 
     let mut resolved_volumes: Vec<ResolvedVolume> = Vec::new();
-
-    // One ProbeCache per deployment — shared across all targets and all file
-    // renders so a probe (e.g. `{{ system_info() }}`) fires at most once.
-    let probe_cache = Arc::new(ProbeCache::new(node.clone()));
 
     output.line("Copying app files to workspace...");
     for target in targets {

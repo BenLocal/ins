@@ -26,14 +26,14 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 /// once for the lifetime of the cache. Shared across all template renders
 /// within a single deployment so the second file's `{{ system_info() }}`
 /// reuses the result from the first file's call.
-pub(super) struct ProbeCache {
+pub(crate) struct ProbeCache {
     node: NodeRecord,
     system: OnceCell<Value>,
     gpu: OnceCell<Value>,
 }
 
 impl ProbeCache {
-    pub(super) fn new(node: NodeRecord) -> Self {
+    pub(crate) fn new(node: NodeRecord) -> Self {
         Self {
             node,
             system: OnceCell::new(),
@@ -159,15 +159,38 @@ const PROBE_CATALOG: &[(&str, &[&str])] = &[
     ("gpu_info()", &["vendor", "count", "models", "driver"]),
 ];
 
-pub(super) fn print_probe_catalog(output: &ExecutionOutput) {
+pub(super) async fn print_probe_catalog(probe_cache: &Arc<ProbeCache>, output: &ExecutionOutput) {
     output.line("----------------------------");
-    output.line("Available probe functions (lazy, SSH on first use; cached per deployment):");
+    output.line("Probe function values (cached per deployment):");
+    let system_value = probe_cache.system().await;
+    let gpu_value = probe_cache.gpu().await;
     for (func, fields) in PROBE_CATALOG {
+        let source = match *func {
+            "system_info()" => &system_value,
+            "gpu_info()" => &gpu_value,
+            _ => continue,
+        };
         for field in *fields {
-            output.line(format!("      {func}.{field}"));
+            let rendered = source
+                .get(field)
+                .map(format_probe_value)
+                .unwrap_or_else(|| "<missing>".to_string());
+            output.line(format!("      {func}.{field}={rendered}"));
         }
     }
     output.line("----------------------------");
+}
+
+fn format_probe_value(value: &Value) -> String {
+    match value {
+        Value::Null => "null".to_string(),
+        Value::String(s) => s.clone(),
+        Value::Array(arr) => {
+            let parts: Vec<String> = arr.iter().map(format_probe_value).collect();
+            format!("[{}]", parts.join(", "))
+        }
+        other => other.to_string(),
+    }
 }
 
 fn resolved_volumes_to_json(

@@ -19,6 +19,8 @@ use crate::volume::list::{load_volumes, volumes_file};
 #[cfg(test)]
 pub(crate) use copy::copy_apps_to_workspace;
 pub(crate) use copy::copy_apps_to_workspace_with_output;
+use std::sync::Arc;
+pub(crate) use template::ProbeCache;
 use template::{print_probe_catalog, print_target_template_values};
 #[cfg(test)]
 pub(crate) use labels::build_compose_metadata_labels;
@@ -129,11 +131,15 @@ pub async fn execute_pipeline_with_output(
 
     let volumes_config = load_volumes(&volumes_file(home)).await?;
 
+    // One ProbeCache per deployment — shared across check-time display (if any)
+    // and copy-time template rendering so each probe fires at most once.
+    let probe_cache = Arc::new(ProbeCache::new(prepared.node.clone()));
+
     if matches!(mode, PipelineMode::Check) {
         for target in &prepared.targets {
             print_target_template_values(target, &prepared.node, &volumes_config, &output)?;
         }
-        print_probe_catalog(&output);
+        print_probe_catalog(&probe_cache, &output).await;
     }
 
     let resolved_volumes = copy_apps_to_workspace_with_output(
@@ -143,6 +149,7 @@ pub async fn execute_pipeline_with_output(
         &prepared.workspace,
         &prepared.node,
         &volumes_config,
+        &probe_cache,
         &output,
     )
     .await?;

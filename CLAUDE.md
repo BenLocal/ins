@@ -38,7 +38,7 @@ Follow `rustfmt`. Standard Rust naming: `snake_case` files/modules/functions; `C
 
 ## Testing
 
-**Test file layout.** Every module's tests live in a sibling `<module>_test.rs` file, referenced via `#[path]` — never inline inside the module source. For `src/foo.rs`, tests go in `src/foo_test.rs`; the production file ends with:
+**Test file layout.** Tests for each `.rs` source file live in a sibling `<filename>_test.rs` file, referenced via `#[path]` — never inline as a `mod tests { ... }` block. One test file per source file, not per module directory. For `src/foo.rs` tests go in `src/foo_test.rs`; the source file ends with:
 
 ```rust
 #[cfg(test)]
@@ -46,7 +46,7 @@ Follow `rustfmt`. Standard Rust naming: `snake_case` files/modules/functions; `C
 mod foo_test;
 ```
 
-The test file starts with `use super::{...};` to pull in the items under test (and `use crate::...;` for other modules). This convention applies project-wide: keeps production files focused, avoids huge `mod tests { ... }` blocks, and lets the test file grow without inflating the implementation file. See `src/pipeline.rs` ↔ `src/pipeline_test.rs` and `src/cli/deploy.rs` ↔ `src/cli/deploy_test.rs` for examples.
+The test file starts with `use super::{...};` to pull in the items under test (and `use crate::...;` for other modules). This convention applies project-wide: keeps source files focused, avoids huge inline test blocks, and lets each test file grow without inflating its implementation file. See `src/cli/deploy.rs` ↔ `src/cli/deploy_test.rs` and `src/volume/compose.rs` ↔ `src/volume/compose_test.rs` for examples. For directory-style modules with `mod.rs`, the test file is named after the directory (e.g. `src/pipeline/mod.rs` ↔ `src/pipeline/pipeline_test.rs`) since `mod_test.rs` would be meaningless.
 
 When production code needs to expose private items for tests (e.g. a CLI file wanting access to private pipeline helpers), add a `#[cfg(test)] use crate::pipeline::{...};` block in the production file — the test file then accesses those via `super::`.
 

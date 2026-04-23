@@ -100,6 +100,7 @@ pub struct TuiSnapshot {
 #[derive(Clone, Debug)]
 pub struct TuiState {
     pub(crate) home: std::path::PathBuf,
+    pub(crate) config: std::sync::Arc<crate::config::InsConfig>,
     pub(crate) active_section: ActiveSection,
     pub(crate) nodes: Vec<NodeRecord>,
     pub(crate) node_details: Vec<String>,
@@ -119,6 +120,7 @@ impl Default for TuiState {
     fn default() -> Self {
         let mut state = Self {
             home: std::path::PathBuf::from("."),
+            config: std::sync::Arc::new(crate::config::InsConfig::default()),
             active_section: ActiveSection::Nodes,
             nodes: vec![NodeRecord::Local()],
             node_details: vec![node_detail(&NodeRecord::Local())],
@@ -139,8 +141,14 @@ impl Default for TuiState {
 }
 
 impl TuiState {
-    pub async fn load(home: std::path::PathBuf) -> anyhow::Result<Self> {
-        let app_home = home.join("app");
+    pub async fn load(
+        home: std::path::PathBuf,
+        config: std::sync::Arc<crate::config::InsConfig>,
+    ) -> anyhow::Result<Self> {
+        let app_home = match config.app_home_override() {
+            Some(path) => std::path::PathBuf::from(path),
+            None => home.join("app"),
+        };
         tokio::fs::create_dir_all(&app_home)
             .await
             .with_context(|| format!("create app home {}", app_home.display()))?;
@@ -153,6 +161,7 @@ impl TuiState {
 
         let mut state = Self {
             home,
+            config,
             active_section: ActiveSection::Nodes,
             nodes: nodes.clone(),
             node_details: nodes.iter().map(node_detail).collect(),

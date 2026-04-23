@@ -13,6 +13,6 @@ impl CommandTrait for TuiCommand {
     type Args = TuiArgs;
 
     async fn run(_args: TuiArgs, ctx: CommandContext) -> anyhow::Result<()> {
-        crate::tui::run(ctx.home).await
+        crate::tui::run(ctx.home, ctx.config).await
     }
 }

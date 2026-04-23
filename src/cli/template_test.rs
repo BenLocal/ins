@@ -22,10 +22,11 @@ async fn template_init_creates_app_template_files() -> anyhow::Result<()> {
                 name: "demo".into(),
             }),
         },
-        CommandContext {
-            home: home.clone(),
-            output: OutputFormat::Table,
-        },
+        CommandContext::new(
+            home.clone(),
+            OutputFormat::Table,
+            std::sync::Arc::new(crate::config::InsConfig::default()),
+        ),
     )
     .await?;
 
@@ -54,10 +55,11 @@ async fn template_init_rejects_existing_app_template() -> anyhow::Result<()> {
                 name: "demo".into(),
             }),
         },
-        CommandContext {
-            home: home.clone(),
-            output: OutputFormat::Table,
-        },
+        CommandContext::new(
+            home.clone(),
+            OutputFormat::Table,
+            std::sync::Arc::new(crate::config::InsConfig::default()),
+        ),
     )
     .await
     .expect_err("existing template should fail");

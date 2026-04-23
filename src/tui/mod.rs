@@ -16,13 +16,16 @@ use crate::pipeline::{
 };
 use crate::tui::state::TuiState;
 
-pub async fn run(home: PathBuf) -> anyhow::Result<()> {
+pub async fn run(
+    home: PathBuf,
+    config: std::sync::Arc<crate::config::InsConfig>,
+) -> anyhow::Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
-    let result = run_event_loop(&mut terminal, TuiState::load(home).await).await;
+    let result = run_event_loop(&mut terminal, TuiState::load(home, config).await).await;
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
@@ -240,7 +243,7 @@ async fn run_confirmed_service_action(
     let output = ExecutionOutput::buffered();
     let result = async {
         let prepared =
-            prepare_installed_service_deployment(&state.home, "docker-compose".into(), &service)
+            prepare_installed_service_deployment(&state.home, &state.config, None, &service)
                 .await?;
         execute_pipeline_with_output(&state.home, prepared, title, mode, output.clone()).await
     }
@@ -371,7 +374,11 @@ values: []
         )
         .await?;
 
-        let mut state = TuiState::load(home.clone()).await?;
+        let mut state = TuiState::load(
+            home.clone(),
+            std::sync::Arc::new(crate::config::InsConfig::default()),
+        )
+        .await?;
         state
             .apply_node_form(NodeFormInput {
                 mode: NodeFormMode::Add,
@@ -442,7 +449,11 @@ values: []
         )
         .await?;
 
-        let mut state = TuiState::load(home.clone()).await?;
+        let mut state = TuiState::load(
+            home.clone(),
+            std::sync::Arc::new(crate::config::InsConfig::default()),
+        )
+        .await?;
         state.next_section();
         state.next_section();
         state.open_service_action_confirmation(PipelineMode::Check)?;
@@ -460,7 +471,11 @@ values: []
     #[tokio::test]
     async fn tui_state_adds_and_updates_nodes() -> anyhow::Result<()> {
         let home = unique_test_dir("tui-state-node-mutations");
-        let mut state = TuiState::load(home.clone()).await?;
+        let mut state = TuiState::load(
+            home.clone(),
+            std::sync::Arc::new(crate::config::InsConfig::default()),
+        )
+        .await?;
 
         state
             .apply_node_form(NodeFormInput {
@@ -518,7 +533,11 @@ values: []
     #[tokio::test]
     async fn tui_state_deletes_remote_node_with_confirmation() -> anyhow::Result<()> {
         let home = unique_test_dir("tui-state-node-delete");
-        let mut state = TuiState::load(home.clone()).await?;
+        let mut state = TuiState::load(
+            home.clone(),
+            std::sync::Arc::new(crate::config::InsConfig::default()),
+        )
+        .await?;
 
         state
             .apply_node_form(NodeFormInput {
@@ -574,7 +593,11 @@ values: []
         .await?;
         fs::write(app_dir.join("README.md"), "hello from app").await?;
 
-        let mut state = TuiState::load(home.clone()).await?;
+        let mut state = TuiState::load(
+            home.clone(),
+            std::sync::Arc::new(crate::config::InsConfig::default()),
+        )
+        .await?;
         state.next_section();
         state.inspect_selected();
 
@@ -601,7 +624,11 @@ values: []
         )
         .await?;
 
-        let mut state = TuiState::load(home.clone()).await?;
+        let mut state = TuiState::load(
+            home.clone(),
+            std::sync::Arc::new(crate::config::InsConfig::default()),
+        )
+        .await?;
         state.next_section();
         state.inspect_selected();
 
@@ -638,7 +665,11 @@ values: []
         )
         .await?;
 
-        let mut state = TuiState::load(home.clone()).await?;
+        let mut state = TuiState::load(
+            home.clone(),
+            std::sync::Arc::new(crate::config::InsConfig::default()),
+        )
+        .await?;
         state.next_section();
         state.inspect_selected();
 

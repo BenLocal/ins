@@ -22,7 +22,8 @@ impl CommandTrait for CheckCommand {
         let args = args.pipeline;
         let prepared: PreparedDeployment = prepare_deployment(
             &ctx.home,
-            args.provider.clone(),
+            &ctx.config,
+            args.provider,
             args.workspace,
             args.node,
             args.values,

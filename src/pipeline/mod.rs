@@ -37,12 +37,12 @@ const COPY_CONCURRENCY: usize = 3;
 
 #[derive(clap::Args, Clone, Debug)]
 pub struct PipelineArgs {
-    /// Provider name.
-    #[arg(short, long, default_value = "docker-compose")]
-    pub provider: String,
-    /// Workspace directory for copied app files.
+    /// Provider name. Falls back to config.toml, then "docker-compose".
     #[arg(short, long)]
-    pub workspace: PathBuf,
+    pub provider: Option<String>,
+    /// Workspace directory for copied app files. Falls back to config.toml per-node or defaults.
+    #[arg(short, long)]
+    pub workspace: Option<PathBuf>,
     /// Target node name.
     #[arg(short, long)]
     pub node: Option<String>,

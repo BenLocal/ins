@@ -9,6 +9,7 @@ use crate::cli::{
 
 mod app;
 mod cli;
+mod config;
 mod env;
 mod execution_output;
 mod file;
@@ -33,107 +34,27 @@ async fn main() {
         }
     };
 
+    let config = match crate::config::load_config(&home).await {
+        Ok(cfg) => std::sync::Arc::new(cfg),
+        Err(e) => {
+            eprintln!("{:?}", e);
+            std::process::exit(1);
+        }
+    };
+
+    let ctx = CommandContext::new(home, cli.output, config);
+
     let res = match cli.command {
-        Some(Command::Deploy(args)) => {
-            DeployCommand::run(
-                args,
-                CommandContext {
-                    home,
-                    output: cli.output,
-                },
-            )
-            .await
-        }
-        Some(Command::Check(args)) => {
-            CheckCommand::run(
-                args,
-                CommandContext {
-                    home,
-                    output: cli.output,
-                },
-            )
-            .await
-        }
-        Some(Command::Node(args)) => {
-            NodeCommand::run(
-                args,
-                CommandContext {
-                    home,
-                    output: cli.output,
-                },
-            )
-            .await
-        }
-        Some(Command::App(args)) => {
-            AppCommand::run(
-                args,
-                CommandContext {
-                    home,
-                    output: cli.output,
-                },
-            )
-            .await
-        }
-        Some(Command::Service(args)) => {
-            ServiceCommand::run(
-                args,
-                CommandContext {
-                    home,
-                    output: cli.output,
-                },
-            )
-            .await
-        }
-        Some(Command::Template(args)) => {
-            TemplateCommand::run(
-                args,
-                CommandContext {
-                    home,
-                    output: cli.output,
-                },
-            )
-            .await
-        }
-        Some(Command::Tui(args)) => {
-            TuiCommand::run(
-                args,
-                CommandContext {
-                    home,
-                    output: cli.output,
-                },
-            )
-            .await
-        }
-        Some(Command::Version(args)) => {
-            VersionCommand::run(
-                args,
-                CommandContext {
-                    home,
-                    output: cli.output,
-                },
-            )
-            .await
-        }
-        Some(Command::Volume(args)) => {
-            VolumeCommand::run(
-                args,
-                CommandContext {
-                    home,
-                    output: cli.output,
-                },
-            )
-            .await
-        }
-        Some(Command::Docker(args)) => {
-            DockerCommand::run(
-                args,
-                CommandContext {
-                    home,
-                    output: cli.output,
-                },
-            )
-            .await
-        }
+        Some(Command::Deploy(args)) => DeployCommand::run(args, ctx).await,
+        Some(Command::Check(args)) => CheckCommand::run(args, ctx).await,
+        Some(Command::Node(args)) => NodeCommand::run(args, ctx).await,
+        Some(Command::App(args)) => AppCommand::run(args, ctx).await,
+        Some(Command::Service(args)) => ServiceCommand::run(args, ctx).await,
+        Some(Command::Template(args)) => TemplateCommand::run(args, ctx).await,
+        Some(Command::Tui(args)) => TuiCommand::run(args, ctx).await,
+        Some(Command::Version(args)) => VersionCommand::run(args, ctx).await,
+        Some(Command::Volume(args)) => VolumeCommand::run(args, ctx).await,
+        Some(Command::Docker(args)) => DockerCommand::run(args, ctx).await,
         None => {
             InsCli::command().print_help().expect("print help");
             println!();

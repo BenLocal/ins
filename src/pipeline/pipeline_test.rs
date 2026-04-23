@@ -136,7 +136,8 @@ values:
 
     let prepared = prepare_installed_service_deployment(
         &home,
-        "docker-compose".into(),
+        &crate::config::InsConfig::default(),
+        Some("docker-compose".into()),
         &InstalledServiceRecord {
             service: "demo-web".into(),
             app_name: "demo".into(),

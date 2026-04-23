@@ -124,6 +124,8 @@ Use `ins template init --name <app>` to scaffold a new app template with `qa.yam
 
 For `qa.yaml` field meanings, dependency env mapping, and usage examples, see [docs/qa-yaml-dependencies-env.md](docs/qa-yaml-dependencies-env.md).
 
+Migrating a legacy `docker-compose.yaml` + install scripts + config files into an ins app template: follow the step-by-step playbook at [docs/migrate-to-ins-template.md](docs/migrate-to-ins-template.md).
+
 During `check` and `deploy`, the CLI can:
 
 - prompt for service names

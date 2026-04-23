@@ -116,3 +116,9 @@ When adding new compose-level mutations, follow the `inject_compose_labels` patt
 ### Superpowers specs & plans
 
 Design documents live under `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md` and implementation plans under `docs/superpowers/plans/YYYY-MM-DD-<topic>.md`. Existing files in those directories show the expected shape and are part of the brainstorm → spec → plan → execute workflow. For non-trivial features, write the spec first (via the `brainstorming` skill), then the plan (via `writing-plans`).
+
+### Project-local skills
+
+Skills specific to this repo live at `.claude/skills/<name>/SKILL.md`. Current inventory:
+
+- `migrate-to-ins-template` — convert a legacy `docker-compose.yaml` + install scripts + configs into an ins app template at `.ins/app/<name>/`. Invoke via the `Skill` tool when a user shares legacy deployment artifacts and asks to migrate to ins.

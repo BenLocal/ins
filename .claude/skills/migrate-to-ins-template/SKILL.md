@@ -1,3 +1,8 @@
+---
+name: migrate-to-ins-template
+description: Use when converting a legacy deployment bundle (docker-compose.yaml + install/setup scripts + bind-mounted config files) into an ins app template under .ins/app/<name>/. Trigger when the user shares those artifacts and asks to migrate to ins, adopt ins for existing services, or convert a manual docker compose workflow to run under `ins deploy`. Do NOT use for writing new apps from scratch — use `ins template init` for that.
+---
+
 # Migrate Legacy Artifacts to an ins App Template
 
 Playbook for converting a legacy deployment bundle (`docker-compose.yaml` + install scripts + config files) into an `ins` app template at `.ins/app/<name>/`. Follow it top to bottom; the last step validates the output with `ins check`.

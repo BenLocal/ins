@@ -124,7 +124,7 @@ Use `ins template init --name <app>` to scaffold a new app template with `qa.yam
 
 For `qa.yaml` field meanings, dependency env mapping, and usage examples, see [docs/qa-yaml-dependencies-env.md](docs/qa-yaml-dependencies-env.md).
 
-Migrating a legacy `docker-compose.yaml` + install scripts + config files into an ins app template: follow the step-by-step playbook at [docs/migrate-to-ins-template.md](docs/migrate-to-ins-template.md).
+Migrating a legacy `docker-compose.yaml` + install scripts + config files into an ins app template: Claude Code users invoke the `migrate-to-ins-template` skill (see [.claude/skills/migrate-to-ins-template/SKILL.md](.claude/skills/migrate-to-ins-template/SKILL.md)); humans can read the same file as a step-by-step playbook.
 
 During `check` and `deploy`, the CLI can:
 

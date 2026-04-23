@@ -7,7 +7,7 @@ use std::{
 use serde_json::json;
 use tokio::fs;
 
-use crate::app::parse::load_app_record;
+use crate::app::parse::{expand_env_vars, load_app_record};
 
 const QA_TEMPLATE: &str = include_str!("../../template/qa.yaml");
 
@@ -127,6 +127,78 @@ values: []
     assert!(record.dependencies.is_empty());
 
     fs::remove_dir_all(&test_dir).await?;
+    Ok(())
+}
+
+#[test]
+fn expand_env_substitutes_set_var_with_braces() {
+    // SAFETY: unique key per test so concurrent tests don't clobber.
+    unsafe { env::set_var("INS_TEST_PARSE_ENV_SET", "hello") };
+    let out = expand_env_vars("value: ${INS_TEST_PARSE_ENV_SET}").unwrap();
+    assert_eq!(out, "value: hello");
+    unsafe { env::remove_var("INS_TEST_PARSE_ENV_SET") };
+}
+
+#[test]
+fn expand_env_uses_fallback_when_var_unset() {
+    unsafe { env::remove_var("INS_TEST_PARSE_ENV_UNSET") };
+    let out = expand_env_vars("value: ${INS_TEST_PARSE_ENV_UNSET:-fallback}").unwrap();
+    assert_eq!(out, "value: fallback");
+}
+
+#[test]
+fn expand_env_errors_on_unset_without_fallback() {
+    unsafe { env::remove_var("INS_TEST_PARSE_ENV_MISSING") };
+    let err = expand_env_vars("value: ${INS_TEST_PARSE_ENV_MISSING}").unwrap_err();
+    let msg = format!("{err}");
+    assert!(
+        msg.contains("INS_TEST_PARSE_ENV_MISSING"),
+        "expected env-var name in error: {msg}"
+    );
+}
+
+#[test]
+fn expand_env_escapes_double_dollar_to_literal() {
+    let out = expand_env_vars("command: mysqladmin -p$$MYSQL_PASSWORD").unwrap();
+    assert_eq!(out, "command: mysqladmin -p$MYSQL_PASSWORD");
+}
+
+#[test]
+fn expand_env_leaves_jinja_expressions_untouched() {
+    let out = expand_env_vars("port: {{ vars.port | default(3306) }}").unwrap();
+    assert_eq!(out, "port: {{ vars.port | default(3306) }}");
+}
+
+#[test]
+fn expand_env_errors_on_unterminated_reference() {
+    let err = expand_env_vars("value: ${OPEN").unwrap_err();
+    assert!(format!("{err}").contains("unterminated"));
+}
+
+#[tokio::test]
+async fn load_app_record_applies_env_var_substitution() -> anyhow::Result<()> {
+    unsafe { env::set_var("INS_TEST_LOAD_PW", "super-secret") };
+    let test_dir = unique_test_dir("parse-envvars");
+    let qa_file = test_dir.join("qa.yaml");
+    let qa = r#"
+name: demo
+values:
+  - name: password
+    type: string
+    default: "${INS_TEST_LOAD_PW}"
+  - name: port
+    type: number
+    default: 3306
+"#;
+
+    fs::create_dir_all(&test_dir).await?;
+    fs::write(&qa_file, qa.trim_start()).await?;
+
+    let record = load_app_record(&qa_file).await?;
+    assert_eq!(record.values[0].default, Some(json!("super-secret")));
+
+    fs::remove_dir_all(&test_dir).await?;
+    unsafe { env::remove_var("INS_TEST_LOAD_PW") };
     Ok(())
 }
 

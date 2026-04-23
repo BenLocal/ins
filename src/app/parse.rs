@@ -11,10 +11,82 @@ pub async fn load_app_record(qa_file: &Path) -> anyhow::Result<AppRecord> {
         .await
         .with_context(|| format!("read app file {}", qa_file.display()))?;
 
+    let expanded = expand_env_vars(&content)
+        .with_context(|| format!("expand env vars in {}", qa_file.display()))?;
+
     let mut record: AppRecord =
-        from_str(&content).with_context(|| format!("parse app file {}", qa_file.display()))?;
+        from_str(&expanded).with_context(|| format!("parse app file {}", qa_file.display()))?;
     record.files = Some(load_app_files(qa_file).await?);
     Ok(record)
+}
+
+/// Expand shell-style env var references inside qa.yaml content.
+///
+/// Supported syntax:
+/// - `${NAME}` — substitute `NAME` from the process environment; error if unset.
+/// - `${NAME:-fallback}` — use `fallback` when `NAME` is not set.
+/// - `$$` — literal `$` (escape).
+///
+/// A bare `$foo` (no braces) is left untouched so Jinja templates embedded in
+/// the qa.yaml — which use their own `{{ }}` syntax — keep working.
+pub(crate) fn expand_env_vars(content: &str) -> anyhow::Result<String> {
+    let mut out = String::with_capacity(content.len());
+    let mut chars = content.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if c != '$' {
+            out.push(c);
+            continue;
+        }
+        match chars.peek() {
+            Some('$') => {
+                chars.next();
+                out.push('$');
+            }
+            Some('{') => {
+                chars.next();
+                let mut spec = String::new();
+                let mut closed = false;
+                for next in chars.by_ref() {
+                    if next == '}' {
+                        closed = true;
+                        break;
+                    }
+                    spec.push(next);
+                }
+                if !closed {
+                    return Err(anyhow!(
+                        "unterminated env var reference '${{{}...' in qa.yaml",
+                        spec
+                    ));
+                }
+                let (name, fallback) = match spec.split_once(":-") {
+                    Some((n, f)) => (n.trim(), Some(f)),
+                    None => (spec.trim(), None),
+                };
+                if name.is_empty() {
+                    return Err(anyhow!("empty env var name in qa.yaml: '${{{}}}'", spec));
+                }
+                let value = match std::env::var(name) {
+                    Ok(v) => v,
+                    Err(_) => match fallback {
+                        Some(f) => f.to_string(),
+                        None => {
+                            return Err(anyhow!(
+                                "env var '{}' referenced in qa.yaml but not set; \
+                                 use ${{{}:-default}} to provide a fallback",
+                                name,
+                                name
+                            ));
+                        }
+                    },
+                };
+                out.push_str(&value);
+            }
+            _ => out.push('$'),
+        }
+    }
+    Ok(out)
 }
 
 async fn load_app_files(qa_file: &Path) -> anyhow::Result<Vec<AppFileEntry>> {

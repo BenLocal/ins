@@ -57,6 +57,7 @@ pub async fn copy_prepared_apps_to_workspace_with_output(
         &prepared.workspace,
         &prepared.node,
         &volumes_config,
+        &prepared.node_info,
         output,
     )
     .await
@@ -71,11 +72,21 @@ pub async fn copy_apps_to_workspace(
     node: &NodeRecord,
 ) -> anyhow::Result<()> {
     let output = ExecutionOutput::stdout();
-    copy_apps_to_workspace_with_output(home, targets, app_home, workspace, node, &[], &output)
-        .await?;
+    copy_apps_to_workspace_with_output(
+        home,
+        targets,
+        app_home,
+        workspace,
+        node,
+        &[],
+        &crate::node::info::NodeInfo::default(),
+        &output,
+    )
+    .await?;
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn copy_apps_to_workspace_with_output(
     home: &Path,
     targets: &[DeploymentTarget],
@@ -83,6 +94,7 @@ pub async fn copy_apps_to_workspace_with_output(
     workspace: &Path,
     node: &NodeRecord,
     volumes_config: &[VolumeRecord],
+    node_info: &crate::node::info::NodeInfo,
     output: &ExecutionOutput,
 ) -> anyhow::Result<Vec<ResolvedVolume>> {
     output.line("Saving deployment records...");
@@ -107,7 +119,8 @@ pub async fn copy_apps_to_workspace_with_output(
     for target in targets {
         let source_dir = app_home.join(&target.app.name);
         let target_dir = workspace.join(&target.service);
-        let template_values = build_target_template_values(target, node, volumes_config, output)?;
+        let template_values =
+            build_target_template_values(target, node, volumes_config, node_info, output)?;
 
         let ctx = CopyContext {
             app: target.app.clone(),

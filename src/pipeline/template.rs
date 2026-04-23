@@ -4,6 +4,7 @@ use serde_json::{Map, Value};
 
 use crate::app::types::AppRecord;
 use crate::execution_output::ExecutionOutput;
+use crate::node::info::NodeInfo;
 use crate::node::types::NodeRecord;
 use crate::provider::DeploymentTarget;
 use crate::volume::compose::resolve_target_volumes;
@@ -43,6 +44,7 @@ pub(super) fn build_target_template_values(
     target: &DeploymentTarget,
     node: &NodeRecord,
     volumes_config: &[VolumeRecord],
+    node_info: &NodeInfo,
     output: &ExecutionOutput,
 ) -> anyhow::Result<Value> {
     let mut template_values = build_template_values(&target.app)?;
@@ -50,6 +52,9 @@ pub(super) fn build_target_template_values(
         obj.insert("service".into(), Value::String(target.service.clone()));
         let volumes_json = resolved_volumes_to_json(&target.app, node, volumes_config)?;
         obj.insert("volumes".into(), volumes_json);
+        let node_info_json = serde_json::to_value(node_info)
+            .map_err(|e| anyhow!("serialize node_info for template: {}", e))?;
+        obj.insert("node_info".into(), node_info_json);
     }
     debug_print_template_values(&target.app.name, &template_values, output);
     Ok(template_values)
@@ -83,7 +88,7 @@ fn resolved_volumes_to_json(
 fn debug_print_template_values(app_name: &str, template_values: &Value, output: &ExecutionOutput) {
     output.line("----------------------------");
     output.line(format!("Template values for app '{app_name}':"));
-    for section in ["service", "app", "vars", "volumes"] {
+    for section in ["service", "app", "vars", "volumes", "node_info"] {
         let Some(value) = template_values.get(section) else {
             continue;
         };
@@ -136,6 +141,7 @@ pub(super) fn render_template(source: &str, template_values: &Value) -> anyhow::
             vars => template_values.get("vars").cloned().unwrap_or(Value::Null),
             volumes => template_values.get("volumes").cloned().unwrap_or(Value::Null),
             service => template_values.get("service").cloned().unwrap_or(Value::Null),
+            node_info => template_values.get("node_info").cloned().unwrap_or(Value::Null),
         })
         .map_err(|e| anyhow!("render template: {}", e))
 }

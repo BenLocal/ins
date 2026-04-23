@@ -6,6 +6,7 @@ use inquire::Select;
 use crate::app::parse::load_app_record;
 use crate::cli::node::nodes_file;
 use crate::config::{InsConfig, persist_node_workspace_if_missing};
+use crate::node::info::probe_node_info;
 use crate::node::list::load_all_nodes;
 use crate::node::types::NodeRecord;
 use crate::provider::DeploymentTarget;
@@ -48,6 +49,7 @@ pub async fn prepare_deployment(
 
     let app_home = resolve_app_home(home, config);
     let user_env = config.env_for(&node_name_str);
+    let node_info = probe_node_info(&node).await;
 
     let app_names = resolve_apps(requested_apps, &app_home).await?;
     let mut apps = load_app_records_by_names(&app_names, &app_home).await?;
@@ -63,6 +65,7 @@ pub async fn prepare_deployment(
         workspace,
         targets,
         user_env,
+        node_info,
     })
 }
 
@@ -140,6 +143,7 @@ pub async fn prepare_installed_service_deployment(
     let target = DeploymentTarget::new(app, service.service.clone());
     let provider = resolve_provider(provider, config, &service.node_name);
     let user_env = config.env_for(&service.node_name);
+    let node_info = probe_node_info(&node).await;
 
     Ok(PreparedDeployment {
         provider,
@@ -149,6 +153,7 @@ pub async fn prepare_installed_service_deployment(
         workspace: absolute_workspace(Path::new(&service.workspace))?,
         targets: vec![target],
         user_env,
+        node_info,
     })
 }
 

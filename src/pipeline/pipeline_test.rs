@@ -221,6 +221,7 @@ async fn copy_apps_to_workspace_rewrites_compose_volumes_and_returns_resolved() 
         &workspace,
         &node,
         &volumes_config,
+        &crate::node::info::NodeInfo::default(),
         &crate::execution_output::ExecutionOutput::stdout(),
     )
     .await?;

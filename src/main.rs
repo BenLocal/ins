@@ -3,8 +3,8 @@ use std::{env as std_env, fs, path::PathBuf};
 
 use crate::cli::{
     CommandContext, CommandTrait, app::AppCommand, check::CheckCommand, deploy::DeployCommand,
-    node::NodeCommand, service::ServiceCommand, template::TemplateCommand, tui::TuiCommand,
-    version::VersionCommand, volume::VolumeCommand,
+    docker::DockerCommand, node::NodeCommand, service::ServiceCommand, template::TemplateCommand,
+    tui::TuiCommand, version::VersionCommand, volume::VolumeCommand,
 };
 
 mod app;
@@ -124,6 +124,16 @@ async fn main() {
             )
             .await
         }
+        Some(Command::Docker(args)) => {
+            DockerCommand::run(
+                args,
+                CommandContext {
+                    home,
+                    output: cli.output,
+                },
+            )
+            .await
+        }
         None => {
             InsCli::command().print_help().expect("print help");
             println!();
@@ -200,6 +210,8 @@ enum Command {
     Version(cli::version::VersionArgs),
     /// Manage per-node Docker volume backings.
     Volume(cli::volume::VolumeArgs),
+    /// Run a docker command on the selected node.
+    Docker(cli::docker::DockerArgs),
 }
 
 #[cfg(test)]

@@ -1,6 +1,7 @@
 pub mod app;
 pub mod check;
 pub mod deploy;
+pub mod docker;
 pub mod node;
 pub mod service;
 pub mod template;

@@ -14,7 +14,6 @@ use crate::node::types::NodeRecord;
 use crate::provider::DeploymentTarget;
 use crate::store::duck::save_deployment_record;
 use crate::volume::compose::inject_compose_volumes;
-use crate::volume::list::{load_volumes, volumes_file};
 use crate::volume::types::{ResolvedVolume, VolumeRecord};
 
 use super::labels::{is_docker_compose_file, maybe_inject_compose_labels};
@@ -24,7 +23,7 @@ use super::template::{
     ProbeCache, build_target_template_values, is_template_file, render_template,
     rendered_template_name,
 };
-use super::{COPY_CONCURRENCY, PreparedDeployment, node_name};
+use super::{COPY_CONCURRENCY, node_name};
 
 /// Everything a copy task needs that is constant across files within one target.
 #[derive(Clone)]
@@ -35,33 +34,6 @@ struct CopyContext {
     volumes_config: Vec<VolumeRecord>,
     probe_cache: Arc<ProbeCache>,
     output: ExecutionOutput,
-}
-
-#[allow(dead_code)]
-pub async fn copy_prepared_apps_to_workspace(
-    home: &Path,
-    prepared: &PreparedDeployment,
-) -> anyhow::Result<Vec<ResolvedVolume>> {
-    let output = ExecutionOutput::stdout();
-    copy_prepared_apps_to_workspace_with_output(home, prepared, &output).await
-}
-
-pub async fn copy_prepared_apps_to_workspace_with_output(
-    home: &Path,
-    prepared: &PreparedDeployment,
-    output: &ExecutionOutput,
-) -> anyhow::Result<Vec<ResolvedVolume>> {
-    let volumes_config = load_volumes(&volumes_file(home)).await?;
-    copy_apps_to_workspace_with_output(
-        home,
-        &prepared.targets,
-        &prepared.app_home,
-        &prepared.workspace,
-        &prepared.node,
-        &volumes_config,
-        output,
-    )
-    .await
 }
 
 #[cfg(test)]
@@ -113,7 +85,7 @@ pub async fn copy_apps_to_workspace_with_output(
     for target in targets {
         let source_dir = app_home.join(&target.app.name);
         let target_dir = workspace.join(&target.service);
-        let template_values = build_target_template_values(target, node, volumes_config, output)?;
+        let template_values = build_target_template_values(target, node, volumes_config)?;
 
         let ctx = CopyContext {
             app: target.app.clone(),

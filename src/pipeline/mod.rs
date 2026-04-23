@@ -15,11 +15,11 @@ use crate::node::types::NodeRecord;
 use crate::provider::docker_compose::DockerComposeProvider;
 use crate::provider::{DeploymentTarget, ProviderContext, ProviderTrait};
 use crate::store::duck::load_installed_service_configs;
+use crate::volume::list::{load_volumes, volumes_file};
 #[cfg(test)]
 pub(crate) use copy::copy_apps_to_workspace;
-#[cfg(test)]
 pub(crate) use copy::copy_apps_to_workspace_with_output;
-use copy::copy_prepared_apps_to_workspace_with_output;
+use template::{print_probe_catalog, print_target_template_values};
 #[cfg(test)]
 pub(crate) use labels::build_compose_metadata_labels;
 #[cfg(test)]
@@ -126,8 +126,26 @@ pub async fn execute_pipeline_with_output(
     let provider = ensure_supported_provider(&prepared.provider)?;
 
     print_prepared_deployment_to_output(title, &prepared, &output);
-    let resolved_volumes =
-        copy_prepared_apps_to_workspace_with_output(home, &prepared, &output).await?;
+
+    let volumes_config = load_volumes(&volumes_file(home)).await?;
+
+    if matches!(mode, PipelineMode::Check) {
+        for target in &prepared.targets {
+            print_target_template_values(target, &prepared.node, &volumes_config, &output)?;
+        }
+        print_probe_catalog(&output);
+    }
+
+    let resolved_volumes = copy_apps_to_workspace_with_output(
+        home,
+        &prepared.targets,
+        &prepared.app_home,
+        &prepared.workspace,
+        &prepared.node,
+        &volumes_config,
+        &output,
+    )
+    .await?;
 
     let provider_ctx = ProviderContext::new(
         prepared.provider.clone(),

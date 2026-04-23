@@ -127,7 +127,6 @@ pub(super) fn build_target_template_values(
     target: &DeploymentTarget,
     node: &NodeRecord,
     volumes_config: &[VolumeRecord],
-    output: &ExecutionOutput,
 ) -> anyhow::Result<Value> {
     let mut template_values = build_template_values(&target.app)?;
     if let Some(obj) = template_values.as_object_mut() {
@@ -135,8 +134,40 @@ pub(super) fn build_target_template_values(
         let volumes_json = resolved_volumes_to_json(&target.app, node, volumes_config)?;
         obj.insert("volumes".into(), volumes_json);
     }
-    debug_print_template_values(&target.app.name, &template_values, output);
     Ok(template_values)
+}
+
+pub(super) fn print_target_template_values(
+    target: &DeploymentTarget,
+    node: &NodeRecord,
+    volumes_config: &[VolumeRecord],
+    output: &ExecutionOutput,
+) -> anyhow::Result<()> {
+    let template_values = build_target_template_values(target, node, volumes_config)?;
+    debug_print_template_values(&target.app.name, &template_values, output);
+    Ok(())
+}
+
+/// Schema of the `{{ system_info() }}` / `{{ gpu_info() }}` Jinja functions.
+/// Printed at `check` time so users can discover available probe fields.
+/// Keep in sync with the probes registered in [`render_template`].
+const PROBE_CATALOG: &[(&str, &[&str])] = &[
+    (
+        "system_info()",
+        &["os", "arch", "kernel", "hostname", "cpus"],
+    ),
+    ("gpu_info()", &["vendor", "count", "models", "driver"]),
+];
+
+pub(super) fn print_probe_catalog(output: &ExecutionOutput) {
+    output.line("----------------------------");
+    output.line("Available probe functions (lazy, SSH on first use; cached per deployment):");
+    for (func, fields) in PROBE_CATALOG {
+        for field in *fields {
+            output.line(format!("      {func}.{field}"));
+        }
+    }
+    output.line("----------------------------");
 }
 
 fn resolved_volumes_to_json(

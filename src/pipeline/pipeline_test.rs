@@ -35,20 +35,26 @@ fn print_provider_envs_lists_services_and_values_in_order() {
     let output = ExecutionOutput::buffered();
     print_provider_envs(&envs, &output);
 
-    assert_eq!(
-        output.snapshot(),
-        "Provider Environment Variables:\n  [api]\n    INS_APP_NAME=backend\n    INS_NODE_NAME=local\n  [worker]\n    INS_APP_NAME=jobs"
-    );
+    let snap = output.snapshot();
+    assert!(snap.contains("Provider Environment Variables:"));
+    assert!(snap.contains("  [api]"));
+    assert!(snap.contains("    INS_APP_NAME=backend"));
+    assert!(snap.contains("    INS_NODE_NAME=local"));
+    assert!(snap.contains("  [worker]"));
+    assert!(snap.contains("    INS_APP_NAME=jobs"));
+    // api appears before worker (BTreeMap iteration order)
+    let api_pos = snap.find("[api]").expect("api present");
+    let worker_pos = snap.find("[worker]").expect("worker present");
+    assert!(api_pos < worker_pos, "expected api before worker: {snap}");
 }
 
 #[test]
 fn print_provider_envs_handles_empty_maps() {
     let output = ExecutionOutput::buffered();
     print_provider_envs(&BTreeMap::new(), &output);
-    assert_eq!(
-        output.snapshot(),
-        "Provider Environment Variables:\n  (none)"
-    );
+    let snap = output.snapshot();
+    assert!(snap.contains("Provider Environment Variables:"));
+    assert!(snap.contains("  (none)"));
 }
 
 #[tokio::test]

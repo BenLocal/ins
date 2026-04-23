@@ -107,7 +107,7 @@ pub async fn copy_apps_to_workspace_with_output(
     for target in targets {
         let source_dir = app_home.join(&target.app.name);
         let target_dir = workspace.join(&target.service);
-        let template_values = build_target_template_values(target, output)?;
+        let template_values = build_target_template_values(target, node, volumes_config, output)?;
 
         let ctx = CopyContext {
             app: target.app.clone(),

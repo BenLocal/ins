@@ -11,8 +11,8 @@ pub(crate) fn inject_compose_volumes(
     node_name: &str,
     volumes: &[VolumeRecord],
 ) -> anyhow::Result<(String, Vec<ResolvedVolume>)> {
-    let required = required_volume_names(app, node_name, volumes);
-    if required.is_empty() {
+    let named = resolve_target_volumes(app, node_name, volumes)?;
+    if named.is_empty() {
         return Ok((content.to_string(), Vec::new()));
     }
 
@@ -39,8 +39,39 @@ pub(crate) fn inject_compose_volumes(
         .and_then(|v| v.as_mapping_mut())
         .expect("top-level volumes mapping just ensured");
 
-    let mut resolved = Vec::new();
-    for name in &required {
+    let mut resolved = Vec::with_capacity(named.len());
+    for (name, rv) in named {
+        let mut replacement = serde_yaml::Mapping::new();
+        replacement.insert(
+            serde_yaml::Value::String("external".into()),
+            serde_yaml::Value::Bool(true),
+        );
+        replacement.insert(
+            serde_yaml::Value::String("name".into()),
+            serde_yaml::Value::String(rv.docker_name.clone()),
+        );
+        top_volumes.insert(
+            serde_yaml::Value::String(name),
+            serde_yaml::Value::Mapping(replacement),
+        );
+        resolved.push(rv);
+    }
+
+    let rewritten =
+        serde_yaml::to_string(&document).map_err(|e| anyhow!("serialize compose yaml: {}", e))?;
+    Ok((rewritten, resolved))
+}
+
+/// Resolve the list of volumes this app needs on the given node, pairing each
+/// logical name with its ResolvedVolume (docker_name, driver, driver_opts).
+pub(crate) fn resolve_target_volumes(
+    app: &AppRecord,
+    node_name: &str,
+    volumes: &[VolumeRecord],
+) -> anyhow::Result<Vec<(String, ResolvedVolume)>> {
+    let required = required_volume_names(app, node_name, volumes);
+    let mut resolved = Vec::with_capacity(required.len());
+    for name in required {
         let record = volumes
             .iter()
             .find(|v| v.name() == name && v.node() == node_name)
@@ -52,34 +83,18 @@ pub(crate) fn inject_compose_volumes(
                     node_name
                 )
             })?;
-
         let docker_name = format!("ins_{}", name);
         let (driver, driver_opts) = driver_opts_for(record);
-
-        let mut replacement = serde_yaml::Mapping::new();
-        replacement.insert(
-            serde_yaml::Value::String("external".into()),
-            serde_yaml::Value::Bool(true),
-        );
-        replacement.insert(
-            serde_yaml::Value::String("name".into()),
-            serde_yaml::Value::String(docker_name.clone()),
-        );
-        top_volumes.insert(
-            serde_yaml::Value::String(name.clone()),
-            serde_yaml::Value::Mapping(replacement),
-        );
-
-        resolved.push(ResolvedVolume {
-            docker_name,
-            driver,
-            driver_opts,
-        });
+        resolved.push((
+            name,
+            ResolvedVolume {
+                docker_name,
+                driver,
+                driver_opts,
+            },
+        ));
     }
-
-    let rewritten =
-        serde_yaml::to_string(&document).map_err(|e| anyhow!("serialize compose yaml: {}", e))?;
-    Ok((rewritten, resolved))
+    Ok(resolved)
 }
 
 fn required_volume_names(

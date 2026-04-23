@@ -4,8 +4,12 @@ use serde_json::{Map, Value};
 
 use crate::app::types::AppRecord;
 use crate::execution_output::ExecutionOutput;
+use crate::node::types::NodeRecord;
 use crate::provider::DeploymentTarget;
+use crate::volume::compose::resolve_target_volumes;
+use crate::volume::types::VolumeRecord;
 
+use super::node_name;
 use super::target::resolve_app_values;
 
 pub fn build_template_values(app_record: &AppRecord) -> anyhow::Result<Value> {
@@ -37,20 +41,49 @@ pub fn build_template_values(app_record: &AppRecord) -> anyhow::Result<Value> {
 
 pub(super) fn build_target_template_values(
     target: &DeploymentTarget,
+    node: &NodeRecord,
+    volumes_config: &[VolumeRecord],
     output: &ExecutionOutput,
 ) -> anyhow::Result<Value> {
     let mut template_values = build_template_values(&target.app)?;
     if let Some(obj) = template_values.as_object_mut() {
         obj.insert("service".into(), Value::String(target.service.clone()));
+        let volumes_json = resolved_volumes_to_json(&target.app, node, volumes_config)?;
+        obj.insert("volumes".into(), volumes_json);
     }
     debug_print_template_values(&target.app.name, &template_values, output);
     Ok(template_values)
 }
 
+fn resolved_volumes_to_json(
+    app: &AppRecord,
+    node: &NodeRecord,
+    volumes_config: &[VolumeRecord],
+) -> anyhow::Result<Value> {
+    let node_name_str = node_name(node);
+    let resolved = resolve_target_volumes(app, node_name_str, volumes_config)?;
+    let mut map = Map::new();
+    for (name, rv) in resolved {
+        let mut driver_opts = Map::new();
+        for (k, v) in &rv.driver_opts {
+            driver_opts.insert(k.clone(), Value::String(v.clone()));
+        }
+        map.insert(
+            name,
+            serde_json::json!({
+                "docker_name": rv.docker_name,
+                "driver": rv.driver,
+                "driver_opts": Value::Object(driver_opts),
+            }),
+        );
+    }
+    Ok(Value::Object(map))
+}
+
 fn debug_print_template_values(app_name: &str, template_values: &Value, output: &ExecutionOutput) {
     output.line("----------------------------");
-    output.line(format!("[debug] template values for app '{app_name}':"));
-    for section in ["service", "app", "vars"] {
+    output.line(format!("Template values for app '{app_name}':"));
+    for section in ["service", "app", "vars", "volumes"] {
         let Some(value) = template_values.get(section) else {
             continue;
         };
@@ -101,6 +134,8 @@ pub(super) fn render_template(source: &str, template_values: &Value) -> anyhow::
         .render(context! {
             app => template_values.get("app").cloned().unwrap_or(Value::Null),
             vars => template_values.get("vars").cloned().unwrap_or(Value::Null),
+            volumes => template_values.get("volumes").cloned().unwrap_or(Value::Null),
+            service => template_values.get("service").cloned().unwrap_or(Value::Null),
         })
         .map_err(|e| anyhow!("render template: {}", e))
 }

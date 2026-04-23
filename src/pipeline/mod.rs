@@ -161,6 +161,9 @@ fn print_provider_envs(
     envs: &BTreeMap<String, BTreeMap<String, String>>,
     output: &ExecutionOutput,
 ) {
+    output.line("");
+    output.line("");
+    output.line("--------------------------------");
     output.line("Provider Environment Variables:");
 
     if envs.is_empty() {
@@ -179,6 +182,7 @@ fn print_provider_envs(
             output.line(format!("    {key}={value}"));
         }
     }
+    output.line("--------------------------------");
 }
 
 pub(crate) fn node_name(node: &NodeRecord) -> &str {

@@ -1,10 +1,17 @@
+use std::sync::Arc;
+use std::time::Duration;
+
 use anyhow::anyhow;
 use minijinja::{Environment, UndefinedBehavior, context};
 use serde_json::{Map, Value};
+use tokio::runtime::Handle;
+use tokio::sync::OnceCell;
+use tokio::task;
+use tokio::time::timeout;
 
 use crate::app::types::AppRecord;
 use crate::execution_output::ExecutionOutput;
-use crate::node::info::NodeInfo;
+use crate::node::info::{NodeInfoProbe, gpu::GpuProbe, system::SystemProbe};
 use crate::node::types::NodeRecord;
 use crate::provider::DeploymentTarget;
 use crate::volume::compose::resolve_target_volumes;
@@ -12,6 +19,82 @@ use crate::volume::types::VolumeRecord;
 
 use super::node_name;
 use super::target::resolve_app_values;
+
+const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Deferred per-probe cache: each `get_or_init` runs the SSH probe at most
+/// once for the lifetime of the cache. Shared across all template renders
+/// within a single deployment so the second file's `{{ system_info() }}`
+/// reuses the result from the first file's call.
+pub(super) struct ProbeCache {
+    node: NodeRecord,
+    system: OnceCell<Value>,
+    gpu: OnceCell<Value>,
+}
+
+impl ProbeCache {
+    pub(super) fn new(node: NodeRecord) -> Self {
+        Self {
+            node,
+            system: OnceCell::new(),
+            gpu: OnceCell::new(),
+        }
+    }
+
+    async fn system(&self) -> Value {
+        self.system
+            .get_or_init(|| async {
+                match timeout(PROBE_TIMEOUT, SystemProbe.probe(&self.node)).await {
+                    Ok(Ok(v)) => v,
+                    Ok(Err(e)) => {
+                        eprintln!("warning: system_info probe failed: {e}");
+                        serde_json::json!({})
+                    }
+                    Err(_) => {
+                        eprintln!(
+                            "warning: system_info probe timed out after {:?}",
+                            PROBE_TIMEOUT
+                        );
+                        serde_json::json!({})
+                    }
+                }
+            })
+            .await
+            .clone()
+    }
+
+    async fn gpu(&self) -> Value {
+        self.gpu
+            .get_or_init(|| async {
+                match timeout(PROBE_TIMEOUT, GpuProbe.probe(&self.node)).await {
+                    Ok(Ok(v)) => v,
+                    Ok(Err(e)) => {
+                        eprintln!("warning: gpu_info probe failed: {e}");
+                        no_gpu_value()
+                    }
+                    Err(_) => {
+                        eprintln!(
+                            "warning: gpu_info probe timed out after {:?}",
+                            PROBE_TIMEOUT
+                        );
+                        no_gpu_value()
+                    }
+                }
+            })
+            .await
+            .clone()
+    }
+}
+
+fn no_gpu_value() -> Value {
+    let empty: Vec<String> = Vec::new();
+    serde_json::json!({
+        "vendor": "none",
+        "count": 0,
+        "models": empty,
+        "driver": Value::Null,
+    })
+}
 
 pub fn build_template_values(app_record: &AppRecord) -> anyhow::Result<Value> {
     let resolved_values = resolve_app_values(app_record, None)?;
@@ -44,7 +127,6 @@ pub(super) fn build_target_template_values(
     target: &DeploymentTarget,
     node: &NodeRecord,
     volumes_config: &[VolumeRecord],
-    node_info: &NodeInfo,
     output: &ExecutionOutput,
 ) -> anyhow::Result<Value> {
     let mut template_values = build_template_values(&target.app)?;
@@ -52,9 +134,6 @@ pub(super) fn build_target_template_values(
         obj.insert("service".into(), Value::String(target.service.clone()));
         let volumes_json = resolved_volumes_to_json(&target.app, node, volumes_config)?;
         obj.insert("volumes".into(), volumes_json);
-        let node_info_json = serde_json::to_value(node_info)
-            .map_err(|e| anyhow!("serialize node_info for template: {}", e))?;
-        obj.insert("node_info".into(), node_info_json);
     }
     debug_print_template_values(&target.app.name, &template_values, output);
     Ok(template_values)
@@ -88,7 +167,7 @@ fn resolved_volumes_to_json(
 fn debug_print_template_values(app_name: &str, template_values: &Value, output: &ExecutionOutput) {
     output.line("----------------------------");
     output.line(format!("Template values for app '{app_name}':"));
-    for section in ["service", "app", "vars", "volumes", "node_info"] {
+    for section in ["service", "app", "vars", "volumes"] {
         let Some(value) = template_values.get(section) else {
             continue;
         };
@@ -127,9 +206,35 @@ fn flatten_template_value(prefix: &str, value: &Value, out: &mut Vec<String>) {
     }
 }
 
-pub(super) fn render_template(source: &str, template_values: &Value) -> anyhow::Result<String> {
+pub(super) fn render_template(
+    source: &str,
+    template_values: &Value,
+    probe_cache: &Arc<ProbeCache>,
+) -> anyhow::Result<String> {
     let mut env = Environment::new();
     env.set_undefined_behavior(UndefinedBehavior::Lenient);
+
+    {
+        let cache = probe_cache.clone();
+        env.add_function(
+            "system_info",
+            move || -> Result<minijinja::Value, minijinja::Error> {
+                let value = run_probe_sync(cache.clone(), ProbeKind::System);
+                minijinja::Value::from_serialize(&value).pipe(Ok)
+            },
+        );
+    }
+    {
+        let cache = probe_cache.clone();
+        env.add_function(
+            "gpu_info",
+            move || -> Result<minijinja::Value, minijinja::Error> {
+                let value = run_probe_sync(cache.clone(), ProbeKind::Gpu);
+                minijinja::Value::from_serialize(&value).pipe(Ok)
+            },
+        );
+    }
+
     env.add_template("app", source)
         .map_err(|e| anyhow!("add template: {}", e))?;
     let template = env
@@ -141,10 +246,39 @@ pub(super) fn render_template(source: &str, template_values: &Value) -> anyhow::
             vars => template_values.get("vars").cloned().unwrap_or(Value::Null),
             volumes => template_values.get("volumes").cloned().unwrap_or(Value::Null),
             service => template_values.get("service").cloned().unwrap_or(Value::Null),
-            node_info => template_values.get("node_info").cloned().unwrap_or(Value::Null),
         })
         .map_err(|e| anyhow!("render template: {}", e))
 }
+
+#[derive(Clone, Copy)]
+enum ProbeKind {
+    System,
+    Gpu,
+}
+
+/// Minijinja render is sync; our probes are async. Bridge via the current
+/// tokio runtime (the main binary is `#[tokio::main]`, so a handle is
+/// always available). `block_in_place` avoids blocking other tasks on the
+/// worker thread.
+fn run_probe_sync(cache: Arc<ProbeCache>, kind: ProbeKind) -> Value {
+    task::block_in_place(|| {
+        Handle::current().block_on(async move {
+            match kind {
+                ProbeKind::System => cache.system().await,
+                ProbeKind::Gpu => cache.gpu().await,
+            }
+        })
+    })
+}
+
+// Tiny ergonomic helper: `x.pipe(f)` → `f(x)`. Saves one line of binding
+// noise in the function-registration closures.
+trait Pipe: Sized {
+    fn pipe<R>(self, f: impl FnOnce(Self) -> R) -> R {
+        f(self)
+    }
+}
+impl<T> Pipe for T {}
 
 pub fn is_template_file(file_name: &str) -> bool {
     file_name.ends_with(".j2")

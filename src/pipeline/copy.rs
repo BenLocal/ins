@@ -21,7 +21,8 @@ use super::labels::{is_docker_compose_file, maybe_inject_compose_labels};
 use super::progress::{CopyAppProgress, CopyProgressSlot};
 use super::target::app_qa_file;
 use super::template::{
-    build_target_template_values, is_template_file, render_template, rendered_template_name,
+    ProbeCache, build_target_template_values, is_template_file, render_template,
+    rendered_template_name,
 };
 use super::{COPY_CONCURRENCY, PreparedDeployment, node_name};
 
@@ -32,6 +33,7 @@ struct CopyContext {
     template_values: serde_json::Value,
     node: NodeRecord,
     volumes_config: Vec<VolumeRecord>,
+    probe_cache: Arc<ProbeCache>,
     output: ExecutionOutput,
 }
 
@@ -57,7 +59,6 @@ pub async fn copy_prepared_apps_to_workspace_with_output(
         &prepared.workspace,
         &prepared.node,
         &volumes_config,
-        &prepared.node_info,
         output,
     )
     .await
@@ -72,21 +73,11 @@ pub async fn copy_apps_to_workspace(
     node: &NodeRecord,
 ) -> anyhow::Result<()> {
     let output = ExecutionOutput::stdout();
-    copy_apps_to_workspace_with_output(
-        home,
-        targets,
-        app_home,
-        workspace,
-        node,
-        &[],
-        &crate::node::info::NodeInfo::default(),
-        &output,
-    )
-    .await?;
+    copy_apps_to_workspace_with_output(home, targets, app_home, workspace, node, &[], &output)
+        .await?;
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 pub async fn copy_apps_to_workspace_with_output(
     home: &Path,
     targets: &[DeploymentTarget],
@@ -94,7 +85,6 @@ pub async fn copy_apps_to_workspace_with_output(
     workspace: &Path,
     node: &NodeRecord,
     volumes_config: &[VolumeRecord],
-    node_info: &crate::node::info::NodeInfo,
     output: &ExecutionOutput,
 ) -> anyhow::Result<Vec<ResolvedVolume>> {
     output.line("Saving deployment records...");
@@ -115,18 +105,22 @@ pub async fn copy_apps_to_workspace_with_output(
 
     let mut resolved_volumes: Vec<ResolvedVolume> = Vec::new();
 
+    // One ProbeCache per deployment — shared across all targets and all file
+    // renders so a probe (e.g. `{{ system_info() }}`) fires at most once.
+    let probe_cache = Arc::new(ProbeCache::new(node.clone()));
+
     output.line("Copying app files to workspace...");
     for target in targets {
         let source_dir = app_home.join(&target.app.name);
         let target_dir = workspace.join(&target.service);
-        let template_values =
-            build_target_template_values(target, node, volumes_config, node_info, output)?;
+        let template_values = build_target_template_values(target, node, volumes_config, output)?;
 
         let ctx = CopyContext {
             app: target.app.clone(),
             template_values,
             node: node.clone(),
             volumes_config: volumes_config.to_vec(),
+            probe_cache: probe_cache.clone(),
             output: output.clone(),
         };
 
@@ -236,7 +230,7 @@ async fn copy_file_to_workspace(
             .read(&job.source_path, None)
             .await
             .map_err(|e| anyhow!("read template {}: {}", job.source_path.display(), e))?;
-        let rendered = render_template(&source, &ctx.template_values)?;
+        let rendered = render_template(&source, &ctx.template_values, &ctx.probe_cache)?;
         let rendered = maybe_inject_compose_labels(
             &job.target_path,
             &rendered,

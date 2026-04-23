@@ -62,7 +62,6 @@ pub struct PreparedDeployment {
     pub workspace: PathBuf,
     pub targets: Vec<DeploymentTarget>,
     pub user_env: BTreeMap<String, String>,
-    pub(crate) node_info: crate::node::info::NodeInfo,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -139,7 +138,7 @@ pub async fn execute_pipeline_with_output(
             &prepared.targets,
             &prepared.node,
             &load_installed_service_configs(home).await?,
-            &merge_user_env_with_node_info(&prepared.user_env, &prepared.node_info),
+            &prepared.user_env,
         )?,
         output.clone(),
         resolved_volumes,
@@ -186,18 +185,6 @@ fn print_provider_envs(
         }
     }
     output.line("--------------------------------");
-}
-
-fn merge_user_env_with_node_info(
-    user_env: &BTreeMap<String, String>,
-    node_info: &crate::node::info::NodeInfo,
-) -> BTreeMap<String, String> {
-    let mut merged = user_env.clone();
-    // INS_NODE_* overlays user env (built-in metadata wins on key collision).
-    for (k, v) in node_info.to_env_pairs() {
-        merged.insert(k, v);
-    }
-    merged
 }
 
 pub(crate) fn node_name(node: &NodeRecord) -> &str {

@@ -430,10 +430,10 @@ impl TuiState {
             Some(OverlayState::NodeForm(form)) => {
                 form.active_value_mut().pop();
             }
-            Some(OverlayState::AppCreateForm(form)) => {
-                if form.active_field == AppCreateField::Path {
-                    form.path.pop();
-                }
+            Some(OverlayState::AppCreateForm(form))
+                if form.active_field == AppCreateField::Path =>
+            {
+                form.path.pop();
             }
             Some(OverlayState::AppTextEditor(editor)) => {
                 editor.content.pop();

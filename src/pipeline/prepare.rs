@@ -5,7 +5,7 @@ use inquire::Select;
 
 use crate::app::parse::load_app_record;
 use crate::cli::node::nodes_file;
-use crate::config::InsConfig;
+use crate::config::{InsConfig, persist_node_workspace_if_missing};
 use crate::node::list::load_all_nodes;
 use crate::node::types::NodeRecord;
 use crate::provider::DeploymentTarget;
@@ -34,7 +34,18 @@ pub async fn prepare_deployment(
     let node_name_str = node_name(&node).to_string();
 
     let provider = resolve_provider(provider, config, &node_name_str);
-    let workspace = resolve_workspace(workspace, config, &node_name_str)?;
+    let cli_workspace = workspace;
+    let config_has_node_workspace = config.has_node_workspace(&node_name_str);
+    let workspace = resolve_workspace(cli_workspace.clone(), config, &node_name_str)?;
+
+    // First-use learning: if the user typed --workspace for a node that doesn't yet
+    // have a per-node entry in config.toml, record the resolved path so subsequent
+    // runs can omit the flag.
+    if cli_workspace.is_some() && !config_has_node_workspace {
+        let absolute = workspace.to_string_lossy().to_string();
+        persist_node_workspace_if_missing(home, &node_name_str, &absolute).await?;
+    }
+
     let app_home = resolve_app_home(home, config);
 
     let app_names = resolve_apps(requested_apps, &app_home).await?;

@@ -1,4 +1,4 @@
-use super::load::load_config;
+use super::load::{load_config, persist_node_workspace_if_missing};
 use std::env;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -92,6 +92,58 @@ async fn load_rejects_unknown_fields() -> anyhow::Result<()> {
         err.to_string().to_lowercase().contains("unknown"),
         "unexpected error: {err}"
     );
+    tokio::fs::remove_dir_all(&home).await.ok();
+    Ok(())
+}
+
+#[tokio::test]
+async fn persist_node_workspace_writes_new_entry_when_absent() -> anyhow::Result<()> {
+    let home = unique_home("persist-new");
+    tokio::fs::create_dir_all(&home).await?;
+
+    persist_node_workspace_if_missing(&home, "node1", "/srv/apps").await?;
+
+    let cfg = load_config(&home).await?;
+    assert_eq!(cfg.workspace_for("node1"), Some("/srv/apps"));
+    assert!(cfg.has_node_workspace("node1"));
+    tokio::fs::remove_dir_all(&home).await.ok();
+    Ok(())
+}
+
+#[tokio::test]
+async fn persist_node_workspace_skips_when_per_node_entry_exists() -> anyhow::Result<()> {
+    let home = unique_home("persist-skip");
+    tokio::fs::create_dir_all(&home).await?;
+    tokio::fs::write(
+        home.join("config.toml"),
+        "[nodes.node1]\nworkspace = \"/existing\"\n",
+    )
+    .await?;
+
+    persist_node_workspace_if_missing(&home, "node1", "/new").await?;
+
+    let cfg = load_config(&home).await?;
+    assert_eq!(cfg.workspace_for("node1"), Some("/existing"));
+    tokio::fs::remove_dir_all(&home).await.ok();
+    Ok(())
+}
+
+#[tokio::test]
+async fn persist_node_workspace_records_even_when_defaults_cover_it() -> anyhow::Result<()> {
+    // [defaults].workspace shouldn't block per-node recording — per-node is more specific.
+    let home = unique_home("persist-over-defaults");
+    tokio::fs::create_dir_all(&home).await?;
+    tokio::fs::write(
+        home.join("config.toml"),
+        "[defaults]\nworkspace = \"/srv/defaults\"\n",
+    )
+    .await?;
+
+    persist_node_workspace_if_missing(&home, "node1", "/srv/node1").await?;
+
+    let cfg = load_config(&home).await?;
+    assert_eq!(cfg.defaults.workspace.as_deref(), Some("/srv/defaults"));
+    assert_eq!(cfg.workspace_for("node1"), Some("/srv/node1"));
     tokio::fs::remove_dir_all(&home).await.ok();
     Ok(())
 }

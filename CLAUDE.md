@@ -54,6 +54,8 @@ Use `#[tokio::test]` for async tests. Cover parser changes, workspace copy/rende
 
 ## Commits & PRs
 
+**Pre-commit gate: always run `make clippy` (or `cargo clippy --all-targets --all-features -- -D warnings`) before every `git commit`.** CI runs the same command and rejects any warning; catching it locally is the cheapest place to fix. `cargo fmt --check` and `cargo test --features duckdb-bundled` are also part of the gate — `make check` runs all three together.
+
 Short imperative subjects (e.g. `Extract shared deployment pipeline`). One logical change per commit. PRs should explain CLI behavior changes, list commands run locally, and include sample output for prompt / validation / deploy-flow changes — this repo cares about terminal output shape.
 
 ---

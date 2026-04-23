@@ -19,21 +19,21 @@ use crate::volume::list::{load_volumes, volumes_file};
 #[cfg(test)]
 pub(crate) use copy::copy_apps_to_workspace;
 pub(crate) use copy::copy_apps_to_workspace_with_output;
-use std::sync::Arc;
-pub(crate) use template::ProbeCache;
-use template::{print_probe_catalog, print_target_template_values};
 #[cfg(test)]
 pub(crate) use labels::build_compose_metadata_labels;
 #[cfg(test)]
 pub(crate) use prepare::select_node;
 pub use prepare::{prepare_deployment, prepare_installed_service_deployment};
+use std::sync::Arc;
 #[cfg(test)]
 pub(crate) use target::{
     app_choice_label, apply_cli_values, apply_stored_values, build_deployment_target,
     parse_cli_value_overrides, parse_number_value, resolve_apps,
 };
+pub(crate) use template::ProbeCache;
 #[cfg(test)]
 pub(crate) use template::{build_template_values, is_template_file, rendered_template_name};
+use template::{print_probe_catalog, print_target_template_values};
 
 const COPY_CONCURRENCY: usize = 3;
 

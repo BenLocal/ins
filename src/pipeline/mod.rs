@@ -61,6 +61,7 @@ pub struct PreparedDeployment {
     pub app_home: PathBuf,
     pub workspace: PathBuf,
     pub targets: Vec<DeploymentTarget>,
+    pub user_env: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -137,6 +138,7 @@ pub async fn execute_pipeline_with_output(
             &prepared.targets,
             &prepared.node,
             &load_installed_service_configs(home).await?,
+            &prepared.user_env,
         )?,
         output.clone(),
         resolved_volumes,

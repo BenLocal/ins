@@ -20,11 +20,16 @@ pub(crate) struct Defaults {
     pub(crate) app_home: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) provider: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub(crate) env: BTreeMap<String, String>,
 }
 
 impl Defaults {
     fn is_empty(&self) -> bool {
-        self.workspace.is_none() && self.app_home.is_none() && self.provider.is_none()
+        self.workspace.is_none()
+            && self.app_home.is_none()
+            && self.provider.is_none()
+            && self.env.is_empty()
     }
 }
 
@@ -35,6 +40,8 @@ pub(crate) struct NodeConfig {
     pub(crate) workspace: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) provider: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub(crate) env: BTreeMap<String, String>,
 }
 
 impl InsConfig {
@@ -62,5 +69,17 @@ impl InsConfig {
     /// Absolute path resolution for the configured app home if present.
     pub(crate) fn app_home_override(&self) -> Option<&str> {
         self.defaults.app_home.as_deref()
+    }
+
+    /// Merged user env for the given node: [defaults.env] overlaid by [nodes.<n>.env].
+    /// Node-specific keys win on collision.
+    pub(crate) fn env_for(&self, node: &str) -> BTreeMap<String, String> {
+        let mut merged = self.defaults.env.clone();
+        if let Some(cfg) = self.nodes.get(node) {
+            for (k, v) in &cfg.env {
+                merged.insert(k.clone(), v.clone());
+            }
+        }
+        merged
     }
 }

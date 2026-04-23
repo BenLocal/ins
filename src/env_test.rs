@@ -64,7 +64,7 @@ fn build_provider_envs_includes_app_metadata_and_values() {
         },
     ];
 
-    let envs = build_provider_envs(&targets, &node, &installed).expect("envs");
+    let envs = build_provider_envs(&targets, &node, &installed, &BTreeMap::new()).expect("envs");
     let service_env = envs.get("frontend").expect("service env");
 
     assert_eq!(

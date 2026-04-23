@@ -47,6 +47,7 @@ pub async fn prepare_deployment(
     }
 
     let app_home = resolve_app_home(home, config);
+    let user_env = config.env_for(&node_name_str);
 
     let app_names = resolve_apps(requested_apps, &app_home).await?;
     let mut apps = load_app_records_by_names(&app_names, &app_home).await?;
@@ -61,6 +62,7 @@ pub async fn prepare_deployment(
         app_home,
         workspace,
         targets,
+        user_env,
     })
 }
 
@@ -137,6 +139,7 @@ pub async fn prepare_installed_service_deployment(
 
     let target = DeploymentTarget::new(app, service.service.clone());
     let provider = resolve_provider(provider, config, &service.node_name);
+    let user_env = config.env_for(&service.node_name);
 
     Ok(PreparedDeployment {
         provider,
@@ -145,6 +148,7 @@ pub async fn prepare_installed_service_deployment(
         app_home,
         workspace: absolute_workspace(Path::new(&service.workspace))?,
         targets: vec![target],
+        user_env,
     })
 }
 

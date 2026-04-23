@@ -11,11 +11,20 @@ pub(crate) fn build_provider_envs(
     targets: &[DeploymentTarget],
     node: &NodeRecord,
     installed_services: &[InstalledServiceConfigRecord],
+    user_env: &BTreeMap<String, String>,
 ) -> anyhow::Result<BTreeMap<String, BTreeMap<String, String>>> {
     let mut envs = BTreeMap::new();
 
     for target in targets {
-        let mut target_envs = build_target_envs(&target.app, &target.service, node)?;
+        let mut target_envs = BTreeMap::new();
+        // User-defined env first so INS_* and app values take precedence on collision.
+        for (k, v) in user_env {
+            target_envs.insert(k.clone(), v.clone());
+        }
+        let ins_envs = build_target_envs(&target.app, &target.service, node)?;
+        for (k, v) in ins_envs {
+            target_envs.insert(k, v);
+        }
         append_installed_service_envs(
             &mut target_envs,
             installed_services,

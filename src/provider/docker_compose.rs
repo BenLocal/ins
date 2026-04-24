@@ -9,8 +9,8 @@ use tokio::time::{Duration, sleep};
 use crate::env::{shell_exports, shell_quote};
 use crate::execution_output::ExecutionOutput;
 use crate::file::remote::RemoteFile;
+use crate::hooks::{run_hook_local, run_hook_remote};
 use crate::node::types::NodeRecord;
-use crate::provider::hooks::{run_hook_local, run_hook_remote};
 use crate::provider::{ProviderContext, ProviderTrait};
 use crate::volume::types::ResolvedVolume;
 

@@ -22,7 +22,7 @@ const DEFAULT_HOOK_SHELL: &str = "bash";
 /// Run a `before`/`after` hook locally, rooted at `app_dir` so relative
 /// `script: ./before.sh` paths resolve correctly. No-op when the hook is unset.
 #[allow(clippy::too_many_arguments)]
-pub(super) async fn run_hook_local(
+pub(crate) async fn run_hook_local(
     hook: &ScriptHook,
     app_dir: &Path,
     envs: &BTreeMap<String, String>,
@@ -67,7 +67,7 @@ pub(super) async fn run_hook_local(
 
 /// Run a `before`/`after` hook on a remote node over SSH. No-op when unset.
 #[allow(clippy::too_many_arguments)]
-pub(super) async fn run_hook_remote(
+pub(crate) async fn run_hook_remote(
     hook: &ScriptHook,
     remote_file: &RemoteFile,
     node_name: &str,

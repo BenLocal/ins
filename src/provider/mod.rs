@@ -7,7 +7,6 @@ use crate::volume::types::ResolvedVolume;
 use crate::{app::types::AppRecord, node::types::NodeRecord};
 
 pub mod docker_compose;
-mod hooks;
 
 #[derive(Clone, Debug)]
 pub struct DeploymentTarget {

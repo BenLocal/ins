@@ -13,6 +13,7 @@ mod config;
 mod env;
 mod execution_output;
 mod file;
+mod hooks;
 mod node;
 mod output;
 mod pipeline;

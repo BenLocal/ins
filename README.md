@@ -99,6 +99,17 @@ ins deploy \
   nginx
 ```
 
+### Non-interactive runs: `-d` / `--defaults`
+
+Both `check` and `deploy` accept `-d` / `--defaults` to skip every prompt and use each qa.yaml value's `default` instead. CLI `-v KEY=VALUE` overrides still win; stored-history reuse is skipped so every run is deterministic from qa.yaml alone.
+
+```bash
+# CI-safe: no prompts, no drift from previous deploys
+ins deploy -d --node prod mysql redis nginx
+```
+
+If any value has no `default`, the run fails fast and lists every missing key so you can add them to qa.yaml (or pass `-v KEY=VALUE`).
+
 ### Volumes
 
 Configure per-node Docker volume backings. The same logical volume name can map to a local bind mount on one node and a CIFS share on another.

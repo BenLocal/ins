@@ -164,12 +164,17 @@ pub(super) async fn build_deployment_targets(
     home: &Path,
     node: &NodeRecord,
     workspace: &Path,
+    use_defaults: bool,
 ) -> anyhow::Result<Vec<DeploymentTarget>> {
     let mut targets = Vec::with_capacity(apps.len());
 
     for app in apps {
-        let preset = load_latest_deployment_record(home, node, workspace, &app.name).await?;
-        let target = build_deployment_target(app, preset.as_ref())?;
+        let preset = if use_defaults {
+            None
+        } else {
+            load_latest_deployment_record(home, node, workspace, &app.name).await?
+        };
+        let target = build_deployment_target(app, preset.as_ref(), use_defaults)?;
         targets.push(target);
     }
 
@@ -179,7 +184,14 @@ pub(super) async fn build_deployment_targets(
 pub fn build_deployment_target(
     mut app: AppRecord,
     preset: Option<&StoredDeploymentRecord>,
+    use_defaults: bool,
 ) -> anyhow::Result<DeploymentTarget> {
+    if use_defaults {
+        apply_qa_defaults(&mut app)?;
+        let service = app.name.clone();
+        return Ok(DeploymentTarget::new(app, service));
+    }
+
     let reuse_stored = should_reuse_stored_settings(&app, preset)?;
     let service = if reuse_stored {
         apply_stored_values(&mut app, preset.expect("preset exists when confirmed"));
@@ -193,6 +205,34 @@ pub fn build_deployment_target(
 
     materialize_app_values(&mut app, if reuse_stored { None } else { preset })?;
     Ok(DeploymentTarget::new(app, service))
+}
+
+/// `--defaults` path: every value falls back to its qa.yaml `default`.
+/// Pre-set `value` (either from qa.yaml literal or from a CLI `-v` override
+/// applied earlier in `apply_cli_values`) is kept. A value with neither `value`
+/// nor `default` fails the whole run — stop asking the user to fill in blanks
+/// is the whole point of the flag.
+fn apply_qa_defaults(app: &mut AppRecord) -> anyhow::Result<()> {
+    let mut missing = Vec::new();
+    for value in &mut app.values {
+        if value.value.is_some() {
+            continue;
+        }
+        match value.default.clone() {
+            Some(default) => value.value = Some(default),
+            None => missing.push(value.name.clone()),
+        }
+    }
+    if !missing.is_empty() {
+        return Err(anyhow!(
+            "app '{}': --defaults requires every value to have a `default`, \
+             but {} value(s) lack one: {}",
+            app.name,
+            missing.len(),
+            missing.join(", ")
+        ));
+    }
+    Ok(())
 }
 
 fn should_reuse_stored_settings(

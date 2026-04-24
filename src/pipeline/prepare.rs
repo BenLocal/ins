@@ -20,6 +20,7 @@ use super::{node_label, node_name};
 
 const DEFAULT_PROVIDER: &str = "docker-compose";
 
+#[allow(clippy::too_many_arguments)]
 pub async fn prepare_deployment(
     home: &Path,
     config: &InsConfig,
@@ -27,6 +28,7 @@ pub async fn prepare_deployment(
     workspace: Option<PathBuf>,
     requested_node: Option<String>,
     requested_values: Vec<String>,
+    use_defaults: bool,
     requested_apps: Option<Vec<String>>,
 ) -> anyhow::Result<PreparedDeployment> {
     let nodes = load_all_nodes(&nodes_file(home)).await?;
@@ -53,7 +55,7 @@ pub async fn prepare_deployment(
     let mut apps = load_app_records_by_names(&app_names, &app_home, &user_env).await?;
     let value_overrides = parse_cli_value_overrides(&requested_values)?;
     apply_cli_values(&mut apps, &value_overrides)?;
-    let targets = build_deployment_targets(apps, home, &node, &workspace).await?;
+    let targets = build_deployment_targets(apps, home, &node, &workspace, use_defaults).await?;
 
     Ok(PreparedDeployment {
         provider,

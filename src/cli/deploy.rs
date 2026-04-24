@@ -35,6 +35,7 @@ impl CommandTrait for DeployCommand {
             args.workspace,
             args.node,
             args.values,
+            args.defaults,
             args.apps,
         )
         .await?;

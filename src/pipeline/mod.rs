@@ -51,6 +51,11 @@ pub struct PipelineArgs {
     /// Override qa values. Can be specified multiple times as key=value.
     #[arg(short = 'v', long = "value", value_name = "KEY=VALUE")]
     pub values: Vec<String>,
+    /// Use `default` for every qa.yaml value; skip prompts and ignore stored
+    /// deployment history. Errors if any value has no default. Intended for
+    /// CI / scripted runs where every setting must be declared in qa.yaml.
+    #[arg(short = 'd', long = "defaults", default_value_t = false)]
+    pub defaults: bool,
     /// Application names to deploy.
     pub apps: Option<Vec<String>>,
 }

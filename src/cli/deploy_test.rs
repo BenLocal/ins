@@ -592,7 +592,8 @@ fn apply_cli_values_overrides_default_and_option_values() {
 
 #[test]
 fn build_deployment_target_defaults_service_to_app_name() {
-    let target = build_deployment_target(app_record("alpha"), None).expect("deployment target");
+    let target =
+        build_deployment_target(app_record("alpha"), None, false).expect("deployment target");
 
     assert_eq!(target.app.name, "alpha");
     assert_eq!(target.service, "alpha");
@@ -682,6 +683,69 @@ fn unique_test_dir(name: &str) -> PathBuf {
         .expect("system time before unix epoch")
         .as_nanos();
     env::temp_dir().join(format!("ins-{name}-{}-{nanos}", std::process::id()))
+}
+
+#[test]
+fn build_deployment_target_with_defaults_fills_missing_from_qa_default() {
+    let mut app = app_record("alpha");
+    app.values = vec![AppValue {
+        name: "port".into(),
+        value_type: "number".into(),
+        description: None,
+        value: None,
+        default: Some(json!(8080)),
+        options: vec![],
+    }];
+
+    let target = build_deployment_target(app, None, true).expect("defaults path must succeed");
+    assert_eq!(target.service, "alpha");
+    assert_eq!(target.app.values[0].value, Some(json!(8080)));
+}
+
+#[test]
+fn build_deployment_target_with_defaults_keeps_existing_value() {
+    let mut app = app_record("alpha");
+    app.values = vec![AppValue {
+        name: "image".into(),
+        value_type: "string".into(),
+        description: None,
+        value: Some(json!("nginx:1.27")),
+        default: Some(json!("nginx:1.0")),
+        options: vec![],
+    }];
+
+    let target = build_deployment_target(app, None, true).expect("defaults path must succeed");
+    assert_eq!(target.app.values[0].value, Some(json!("nginx:1.27")));
+}
+
+#[test]
+fn build_deployment_target_with_defaults_errors_when_default_missing() {
+    let mut app = app_record("alpha");
+    app.values = vec![
+        AppValue {
+            name: "has_default".into(),
+            value_type: "string".into(),
+            description: None,
+            value: None,
+            default: Some(json!("ok")),
+            options: vec![],
+        },
+        AppValue {
+            name: "no_default".into(),
+            value_type: "string".into(),
+            description: None,
+            value: None,
+            default: None,
+            options: vec![],
+        },
+    ];
+
+    let err = build_deployment_target(app, None, true).expect_err("should reject missing default");
+    let msg = format!("{err}");
+    assert!(
+        msg.contains("no_default") && msg.contains("--defaults"),
+        "expected error to name the missing key and the flag: {msg}"
+    );
 }
 
 fn app_record(name: &str) -> AppRecord {

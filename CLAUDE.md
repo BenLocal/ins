@@ -58,6 +58,17 @@ Use `#[tokio::test]` for async tests. Cover parser changes, workspace copy/rende
 
 Short imperative subjects (e.g. `Extract shared deployment pipeline`). One logical change per commit. PRs should explain CLI behavior changes, list commands run locally, and include sample output for prompt / validation / deploy-flow changes — this repo cares about terminal output shape.
 
+**Keep `docs/` in sync with code.** When a change alters user-facing behavior covered by one of the reference docs under `docs/`, update the doc in the same commit as the code. The current reference docs and what they cover:
+
+| Doc                                | Must revisit when you change...                                                                  |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `docs/env-vars.md`                 | Any env-var behavior across the three layers (qa.yaml `${VAR}`, Jinja rendering, provider envs), config.toml env sections, hook env surface, the env lookup order. |
+| `docs/template-values.md`          | Jinja context (`app`/`vars`/`volumes`/`service`), probe functions (`system_info()`/`gpu_info()`), template filename conventions, probe field schemas. |
+| `docs/qa-yaml-dependencies-env.md` | `qa.yaml` `name`/`values`/`dependencies` → `INS_APP_NAME` / `INS_SERVICE_<DEP>_*` generation rules. Code lives in `src/env.rs`. |
+| `docs/volume-command.md`           | `ins volume` CLI surface, `VolumeRecord` types (filesystem/cifs), compose volume injection. |
+
+If your change adds a new concept that no existing doc covers, create a new `docs/<topic>.md` and link it from CLAUDE.md (this section) and from any related doc that now has a cross-reference. Do not leave the documentation stale; reviewers treat doc drift as a blocker.
+
 ---
 
 ## Architecture

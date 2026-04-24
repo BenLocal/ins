@@ -208,6 +208,18 @@ Provider Environment Variables:
 
 `deploy` 不会打印这段，只有 `check` 会。
 
+### 磁盘副本：`<workspace>/<service>/.env`
+
+无论 `check` 还是 `deploy`，`ins` 都会把每个 service 最终拿到的 env 写到它在 workspace 里的 `.env` 文件旁边 `docker-compose.yaml`。这份文件：
+
+- 方便事后排查："deploy 当时到底传了什么值？" 直接 `cat workspace/<service>/.env` 就行
+- 让 `docker compose up` 能在那个目录里**独立跑起来** —— compose 会自动读同目录的 `.env` 做变量插值，结果和 `ins` 跑的一致
+- 在每次 `check` / `deploy` 会被覆写，文件头有警告别手改
+
+值是双引号包裹并对 `\` / `"` / `\n` / `\r` 做转义的，所以 compose 的 dotenv 解析器能原样读回来。
+
+实现位置：[src/pipeline/mod.rs](/root/workspace/master/ins/src/pipeline/mod.rs) 的 `write_provider_env_files`。
+
 ---
 
 ## 速查表

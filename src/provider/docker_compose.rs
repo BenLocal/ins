@@ -10,6 +10,7 @@ use crate::env::{shell_exports, shell_quote};
 use crate::execution_output::ExecutionOutput;
 use crate::file::remote::RemoteFile;
 use crate::node::types::NodeRecord;
+use crate::provider::hooks::{run_hook_local, run_hook_remote};
 use crate::provider::{ProviderContext, ProviderTrait};
 use crate::volume::types::ResolvedVolume;
 
@@ -182,6 +183,17 @@ impl ProviderTrait for DockerComposeProvider {
                         app_dir.display()
                     ));
 
+                    run_hook_local(
+                        &target.app.before,
+                        &app_dir,
+                        &envs,
+                        &ctx.output,
+                        "before",
+                        &target.app.name,
+                        &target.service,
+                    )
+                    .await?;
+
                     if ctx.output.echo_enabled() {
                         let mut child = spawn_local_compose_command(
                             compose_command,
@@ -250,6 +262,17 @@ impl ProviderTrait for DockerComposeProvider {
                         "✅ docker compose up succeeded for app '{}' service '{}'",
                         target.app.name, target.service
                     ));
+
+                    run_hook_local(
+                        &target.app.after,
+                        &app_dir,
+                        &envs,
+                        &ctx.output,
+                        "after",
+                        &target.app.name,
+                        &target.service,
+                    )
+                    .await?;
                 }
 
                 Ok(())
@@ -274,6 +297,19 @@ impl ProviderTrait for DockerComposeProvider {
                         app_dir.display(),
                         remote.name
                     ));
+
+                    run_hook_remote(
+                        &target.app.before,
+                        &remote_file,
+                        &remote.name,
+                        &app_dir,
+                        &envs,
+                        &ctx.output,
+                        "before",
+                        &target.app.name,
+                        &target.service,
+                    )
+                    .await?;
 
                     let output = remote_file.tty_exec(&command).await.with_context(|| {
                         format!(
@@ -301,6 +337,19 @@ impl ProviderTrait for DockerComposeProvider {
                         "✅ docker compose up succeeded for app '{}' service '{}' on remote node '{}'",
                         target.app.name, target.service, remote.name
                     ));
+
+                    run_hook_remote(
+                        &target.app.after,
+                        &remote_file,
+                        &remote.name,
+                        &app_dir,
+                        &envs,
+                        &ctx.output,
+                        "after",
+                        &target.app.name,
+                        &target.service,
+                    )
+                    .await?;
                 }
 
                 Ok(())

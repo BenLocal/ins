@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use anyhow::{Context, anyhow};
@@ -6,12 +7,15 @@ use tokio::fs;
 
 use crate::app::types::{AppFileEntry, AppRecord};
 
-pub async fn load_app_record(qa_file: &Path) -> anyhow::Result<AppRecord> {
+pub async fn load_app_record(
+    qa_file: &Path,
+    extra_env: &BTreeMap<String, String>,
+) -> anyhow::Result<AppRecord> {
     let content = fs::read_to_string(qa_file)
         .await
         .with_context(|| format!("read app file {}", qa_file.display()))?;
 
-    let expanded = expand_env_vars(&content)
+    let expanded = expand_env_vars(&content, extra_env)
         .with_context(|| format!("expand env vars in {}", qa_file.display()))?;
 
     let mut record: AppRecord =
@@ -22,14 +26,22 @@ pub async fn load_app_record(qa_file: &Path) -> anyhow::Result<AppRecord> {
 
 /// Expand shell-style env var references inside qa.yaml content.
 ///
+/// Lookup order: `extra_env` first (typically `config.env_for(node)` merging
+/// `[defaults.env]` + `[nodes.<n>.env]` from config.toml), then the process
+/// environment. This lets users pin per-node overrides in config without
+/// leaking them into their shell.
+///
 /// Supported syntax:
-/// - `${NAME}` — substitute `NAME` from the process environment; error if unset.
+/// - `${NAME}` — substitute `NAME` from env; error if unset.
 /// - `${NAME:-fallback}` — use `fallback` when `NAME` is not set.
 /// - `$$` — literal `$` (escape).
 ///
 /// A bare `$foo` (no braces) is left untouched so Jinja templates embedded in
 /// the qa.yaml — which use their own `{{ }}` syntax — keep working.
-pub(crate) fn expand_env_vars(content: &str) -> anyhow::Result<String> {
+pub(crate) fn expand_env_vars(
+    content: &str,
+    extra_env: &BTreeMap<String, String>,
+) -> anyhow::Result<String> {
     let mut out = String::with_capacity(content.len());
     let mut chars = content.chars().peekable();
 
@@ -67,19 +79,24 @@ pub(crate) fn expand_env_vars(content: &str) -> anyhow::Result<String> {
                 if name.is_empty() {
                     return Err(anyhow!("empty env var name in qa.yaml: '${{{}}}'", spec));
                 }
-                let value = match std::env::var(name) {
-                    Ok(v) => v,
-                    Err(_) => match fallback {
-                        Some(f) => f.to_string(),
-                        None => {
-                            return Err(anyhow!(
-                                "env var '{}' referenced in qa.yaml but not set; \
-                                 use ${{{}:-default}} to provide a fallback",
-                                name,
-                                name
-                            ));
-                        }
-                    },
+                let value = if let Some(v) = extra_env.get(name) {
+                    v.clone()
+                } else {
+                    match std::env::var(name) {
+                        Ok(v) => v,
+                        Err(_) => match fallback {
+                            Some(f) => f.to_string(),
+                            None => {
+                                return Err(anyhow!(
+                                    "env var '{}' referenced in qa.yaml but not set; \
+                                     use ${{{}:-default}} to provide a fallback \
+                                     or add it under [defaults.env] / [nodes.<n>.env] in config.toml",
+                                    name,
+                                    name
+                                ));
+                            }
+                        },
+                    }
                 };
                 out.push_str(&value);
             }

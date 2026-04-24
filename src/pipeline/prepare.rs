@@ -50,7 +50,7 @@ pub async fn prepare_deployment(
     let user_env = config.env_for(&node_name_str);
 
     let app_names = resolve_apps(requested_apps, &app_home).await?;
-    let mut apps = load_app_records_by_names(&app_names, &app_home).await?;
+    let mut apps = load_app_records_by_names(&app_names, &app_home, &user_env).await?;
     let value_overrides = parse_cli_value_overrides(&requested_values)?;
     apply_cli_values(&mut apps, &value_overrides)?;
     let targets = build_deployment_targets(apps, home, &node, &workspace).await?;
@@ -127,7 +127,8 @@ pub async fn prepare_installed_service_deployment(
 
     let app_home = resolve_app_home(home, config);
     let qa_file = app_qa_file(&app_home.join(&service.app_name));
-    let mut app = load_app_record(&qa_file).await?;
+    let user_env = config.env_for(&service.node_name);
+    let mut app = load_app_record(&qa_file, &user_env).await?;
     let stored_config = load_installed_service_configs(home)
         .await?
         .into_iter()

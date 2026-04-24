@@ -82,4 +82,11 @@ impl InsConfig {
         }
         merged
     }
+
+    /// Global `[defaults.env]` only — no per-node overlay. Use from node-agnostic
+    /// commands (`ins app list`, `ins app inspect`) that load qa.yaml without
+    /// having selected a target node.
+    pub(crate) fn defaults_env(&self) -> &BTreeMap<String, String> {
+        &self.defaults.env
+    }
 }

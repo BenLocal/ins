@@ -51,13 +51,14 @@ pub async fn resolve_apps(
 pub(super) async fn load_app_records_by_names(
     apps: &[String],
     app_home: &Path,
+    extra_env: &BTreeMap<String, String>,
 ) -> anyhow::Result<Vec<AppRecord>> {
     let mut records = Vec::new();
 
     for app_name in apps {
         let app_dir = app_home.join(app_name);
         let qa_file = app_qa_file(&app_dir);
-        let record = load_app_record(&qa_file).await?;
+        let record = load_app_record(&qa_file, extra_env).await?;
         records.push(record);
     }
 
@@ -95,7 +96,7 @@ async fn load_available_app_choices(app_home: &Path) -> anyhow::Result<Vec<AppCh
             continue;
         }
 
-        let app = load_app_record(&qa_file).await?;
+        let app = load_app_record(&qa_file, &BTreeMap::new()).await?;
         apps.push(AppChoice {
             label: app_choice_label(&app),
             name: app.name,

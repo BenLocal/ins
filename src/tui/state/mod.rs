@@ -155,7 +155,7 @@ impl TuiState {
 
         let nodes =
             crate::cli::node::list_node_records(&crate::cli::node::nodes_file(&home)).await?;
-        let apps = crate::cli::app::list_app_records(&app_home).await?;
+        let apps = crate::cli::app::list_app_records(&app_home, config.defaults_env()).await?;
         let services = crate::cli::service::list_service_records(&home).await?;
         let app_details = load_app_details(&app_home, &apps).await?;
 

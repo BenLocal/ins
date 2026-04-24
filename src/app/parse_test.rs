@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     env,
     path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
@@ -8,6 +9,10 @@ use serde_json::json;
 use tokio::fs;
 
 use crate::app::parse::{expand_env_vars, load_app_record};
+
+fn no_env() -> BTreeMap<String, String> {
+    BTreeMap::new()
+}
 
 const QA_TEMPLATE: &str = include_str!("../../template/qa.yaml");
 
@@ -19,7 +24,7 @@ async fn load_app_record_parses_template_yaml() -> anyhow::Result<()> {
     fs::create_dir_all(&test_dir).await?;
     fs::write(&qa_file, QA_TEMPLATE).await?;
 
-    let record = load_app_record(&qa_file).await?;
+    let record = load_app_record(&qa_file, &no_env()).await?;
 
     assert_eq!(record.name, "<name>");
     assert_eq!(record.version.as_deref(), Some("<version>"));
@@ -71,7 +76,7 @@ values:
     fs::create_dir_all(&test_dir).await?;
     fs::write(&qa_file, qa.trim_start()).await?;
 
-    let record = load_app_record(&qa_file).await?;
+    let record = load_app_record(&qa_file, &no_env()).await?;
 
     assert_eq!(record.version.as_deref(), Some("1.2.3"));
     assert_eq!(record.dependencies, vec!["redis"]);
@@ -94,7 +99,7 @@ async fn load_app_record_collects_sibling_files_and_directories() -> anyhow::Res
     fs::write(&qa_file, QA_TEMPLATE).await?;
     fs::write(&child_file, "demo").await?;
 
-    let record = load_app_record(&qa_file).await?;
+    let record = load_app_record(&qa_file, &no_env()).await?;
     let files = record.files.expect("files should be populated");
 
     // `qa.yaml` itself is intentionally excluded from sibling file list.
@@ -122,7 +127,7 @@ values: []
     fs::create_dir_all(&test_dir).await?;
     fs::write(&qa_file, qa.trim_start()).await?;
 
-    let record = load_app_record(&qa_file).await?;
+    let record = load_app_record(&qa_file, &no_env()).await?;
 
     assert!(record.dependencies.is_empty());
 
@@ -134,7 +139,7 @@ values: []
 fn expand_env_substitutes_set_var_with_braces() {
     // SAFETY: unique key per test so concurrent tests don't clobber.
     unsafe { env::set_var("INS_TEST_PARSE_ENV_SET", "hello") };
-    let out = expand_env_vars("value: ${INS_TEST_PARSE_ENV_SET}").unwrap();
+    let out = expand_env_vars("value: ${INS_TEST_PARSE_ENV_SET}", &no_env()).unwrap();
     assert_eq!(out, "value: hello");
     unsafe { env::remove_var("INS_TEST_PARSE_ENV_SET") };
 }
@@ -142,14 +147,14 @@ fn expand_env_substitutes_set_var_with_braces() {
 #[test]
 fn expand_env_uses_fallback_when_var_unset() {
     unsafe { env::remove_var("INS_TEST_PARSE_ENV_UNSET") };
-    let out = expand_env_vars("value: ${INS_TEST_PARSE_ENV_UNSET:-fallback}").unwrap();
+    let out = expand_env_vars("value: ${INS_TEST_PARSE_ENV_UNSET:-fallback}", &no_env()).unwrap();
     assert_eq!(out, "value: fallback");
 }
 
 #[test]
 fn expand_env_errors_on_unset_without_fallback() {
     unsafe { env::remove_var("INS_TEST_PARSE_ENV_MISSING") };
-    let err = expand_env_vars("value: ${INS_TEST_PARSE_ENV_MISSING}").unwrap_err();
+    let err = expand_env_vars("value: ${INS_TEST_PARSE_ENV_MISSING}", &no_env()).unwrap_err();
     let msg = format!("{err}");
     assert!(
         msg.contains("INS_TEST_PARSE_ENV_MISSING"),
@@ -159,20 +164,47 @@ fn expand_env_errors_on_unset_without_fallback() {
 
 #[test]
 fn expand_env_escapes_double_dollar_to_literal() {
-    let out = expand_env_vars("command: mysqladmin -p$$MYSQL_PASSWORD").unwrap();
+    let out = expand_env_vars("command: mysqladmin -p$$MYSQL_PASSWORD", &no_env()).unwrap();
     assert_eq!(out, "command: mysqladmin -p$MYSQL_PASSWORD");
 }
 
 #[test]
 fn expand_env_leaves_jinja_expressions_untouched() {
-    let out = expand_env_vars("port: {{ vars.port | default(3306) }}").unwrap();
+    let out = expand_env_vars("port: {{ vars.port | default(3306) }}", &no_env()).unwrap();
     assert_eq!(out, "port: {{ vars.port | default(3306) }}");
 }
 
 #[test]
 fn expand_env_errors_on_unterminated_reference() {
-    let err = expand_env_vars("value: ${OPEN").unwrap_err();
+    let err = expand_env_vars("value: ${OPEN", &no_env()).unwrap_err();
     assert!(format!("{err}").contains("unterminated"));
+}
+
+#[test]
+fn expand_env_prefers_extra_env_over_process_env() {
+    unsafe { env::set_var("INS_TEST_CONFIG_OVERRIDE", "from-process") };
+    let mut extra = BTreeMap::new();
+    extra.insert("INS_TEST_CONFIG_OVERRIDE".into(), "from-config".into());
+    let out = expand_env_vars("value: ${INS_TEST_CONFIG_OVERRIDE}", &extra).unwrap();
+    assert_eq!(out, "value: from-config");
+    unsafe { env::remove_var("INS_TEST_CONFIG_OVERRIDE") };
+}
+
+#[test]
+fn expand_env_falls_back_to_process_env_when_absent_in_extra() {
+    unsafe { env::set_var("INS_TEST_PROCESS_ONLY", "proc-value") };
+    let out = expand_env_vars("value: ${INS_TEST_PROCESS_ONLY}", &no_env()).unwrap();
+    assert_eq!(out, "value: proc-value");
+    unsafe { env::remove_var("INS_TEST_PROCESS_ONLY") };
+}
+
+#[test]
+fn expand_env_uses_extra_env_when_process_unset() {
+    unsafe { env::remove_var("INS_TEST_CONFIG_ONLY") };
+    let mut extra = BTreeMap::new();
+    extra.insert("INS_TEST_CONFIG_ONLY".into(), "cfg-only".into());
+    let out = expand_env_vars("value: ${INS_TEST_CONFIG_ONLY}", &extra).unwrap();
+    assert_eq!(out, "value: cfg-only");
 }
 
 #[tokio::test]
@@ -194,7 +226,7 @@ values:
     fs::create_dir_all(&test_dir).await?;
     fs::write(&qa_file, qa.trim_start()).await?;
 
-    let record = load_app_record(&qa_file).await?;
+    let record = load_app_record(&qa_file, &no_env()).await?;
     assert_eq!(record.values[0].default, Some(json!("super-secret")));
 
     fs::remove_dir_all(&test_dir).await?;

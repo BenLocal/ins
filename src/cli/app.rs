@@ -48,14 +48,20 @@ impl CommandTrait for AppCommand {
             .with_context(|| format!("create app home {}", app_home.display()))?;
 
         match args.command {
-            AppSubcommand::List(_args) => list_apps(&app_home, ctx.output).await,
+            AppSubcommand::List(_args) => {
+                list_apps(&app_home, ctx.output, ctx.config.defaults_env()).await
+            }
             AppSubcommand::Inspect(args) => inspect_app(&app_home, args).await,
         }
     }
 }
 
-async fn list_apps(app_home: &Path, output: crate::OutputFormat) -> anyhow::Result<()> {
-    let apps = list_app_records(app_home).await?;
+async fn list_apps(
+    app_home: &Path,
+    output: crate::OutputFormat,
+    extra_env: &std::collections::BTreeMap<String, String>,
+) -> anyhow::Result<()> {
+    let apps = list_app_records(app_home, extra_env).await?;
     print_structured_list(&apps, output, "no apps found")
 }
 
@@ -78,6 +84,7 @@ fn validate_app_name(name: &str) -> anyhow::Result<()> {
 
 pub(crate) async fn list_app_records(
     app_home: &Path,
+    extra_env: &std::collections::BTreeMap<String, String>,
 ) -> anyhow::Result<Vec<crate::app::types::AppRecord>> {
     let mut entries = fs::read_dir(app_home)
         .await
@@ -107,7 +114,7 @@ pub(crate) async fn list_app_records(
             continue;
         }
 
-        let record = load_app_record(&qa_file).await?;
+        let record = load_app_record(&qa_file, extra_env).await?;
         apps.push(record);
     }
 

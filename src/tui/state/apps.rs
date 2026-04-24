@@ -418,7 +418,7 @@ impl TuiState {
 
     pub async fn reload_apps(&mut self) -> anyhow::Result<()> {
         let app_home = self.home.join("app");
-        self.apps = list_app_records(&app_home).await?;
+        self.apps = list_app_records(&app_home, self.config.defaults_env()).await?;
         self.app_details = load_app_details(&app_home, &self.apps).await?;
         self.app_index = clamp_index(self.app_index, self.apps.len());
         Ok(())

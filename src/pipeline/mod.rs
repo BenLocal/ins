@@ -23,7 +23,7 @@ pub(crate) use copy::copy_apps_to_workspace_with_output;
 pub(crate) use labels::build_compose_metadata_labels;
 #[cfg(test)]
 pub(crate) use prepare::select_node;
-pub use prepare::{prepare_deployment, prepare_installed_service_deployment};
+pub use prepare::{PipelineContext, prepare_deployment, prepare_installed_service_deployment};
 use std::sync::Arc;
 #[cfg(test)]
 pub(crate) use target::{

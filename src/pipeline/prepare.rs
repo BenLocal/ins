@@ -1,9 +1,11 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use anyhow::anyhow;
 use inquire::Select;
 
 use crate::app::parse::load_app_record;
+use crate::cli::CommandContext;
 use crate::cli::node::nodes_file;
 use crate::config::{InsConfig, persist_node_workspace_if_missing};
 use crate::node::list::load_all_nodes;
@@ -11,51 +13,76 @@ use crate::node::types::NodeRecord;
 use crate::provider::DeploymentTarget;
 use crate::store::duck::{InstalledServiceRecord, load_installed_service_configs};
 
-use super::PreparedDeployment;
 use super::target::{
     app_qa_file, apply_cli_values, build_deployment_targets, load_app_records_by_names,
     parse_cli_value_overrides, resolve_apps,
 };
+use super::{PipelineArgs, PreparedDeployment};
 use super::{node_label, node_name};
 
 const DEFAULT_PROVIDER: &str = "docker-compose";
 
-#[allow(clippy::too_many_arguments)]
-pub async fn prepare_deployment(
-    home: &Path,
-    config: &InsConfig,
-    provider: Option<String>,
-    workspace: Option<PathBuf>,
-    requested_node: Option<String>,
-    requested_values: Vec<String>,
-    use_defaults: bool,
-    requested_apps: Option<Vec<String>>,
-) -> anyhow::Result<PreparedDeployment> {
-    let nodes = load_all_nodes(&nodes_file(home)).await?;
+/// Bundle of everything `prepare_deployment` needs: shared CLI state
+/// (`home`, `config`) plus the command-specific `PipelineArgs`. Keeps the
+/// callsite to a single line and avoids the 8-argument signature we used to
+/// have.
+#[derive(Clone, Debug)]
+pub struct PipelineContext {
+    pub home: PathBuf,
+    pub config: Arc<InsConfig>,
+    pub args: PipelineArgs,
+}
+
+impl PipelineContext {
+    pub fn new(cmd_ctx: &CommandContext, args: PipelineArgs) -> Self {
+        Self {
+            home: cmd_ctx.home.clone(),
+            config: cmd_ctx.config.clone(),
+            args,
+        }
+    }
+}
+
+pub async fn prepare_deployment(ctx: PipelineContext) -> anyhow::Result<PreparedDeployment> {
+    let PipelineContext {
+        home,
+        config,
+        args:
+            PipelineArgs {
+                provider,
+                workspace,
+                node: requested_node,
+                values: requested_values,
+                defaults: use_defaults,
+                apps: requested_apps,
+            },
+    } = ctx;
+
+    let nodes = load_all_nodes(&nodes_file(&home)).await?;
     let node = select_node(&nodes, requested_node.as_deref())?;
     let node_name_str = node_name(&node).to_string();
 
-    let provider = resolve_provider(provider, config, &node_name_str);
+    let provider = resolve_provider(provider, &config, &node_name_str);
     let cli_workspace = workspace;
     let config_has_node_workspace = config.has_node_workspace(&node_name_str);
-    let workspace = resolve_workspace(cli_workspace.clone(), config, &node_name_str)?;
+    let workspace = resolve_workspace(cli_workspace.clone(), &config, &node_name_str)?;
 
     // First-use learning: if the user typed --workspace for a node that doesn't yet
     // have a per-node entry in config.toml, record the resolved path so subsequent
     // runs can omit the flag.
     if cli_workspace.is_some() && !config_has_node_workspace {
         let absolute = workspace.to_string_lossy().to_string();
-        persist_node_workspace_if_missing(home, &node_name_str, &absolute).await?;
+        persist_node_workspace_if_missing(&home, &node_name_str, &absolute).await?;
     }
 
-    let app_home = resolve_app_home(home, config);
+    let app_home = resolve_app_home(&home, &config);
     let user_env = config.env_for(&node_name_str);
 
     let app_names = resolve_apps(requested_apps, &app_home).await?;
     let mut apps = load_app_records_by_names(&app_names, &app_home, &user_env).await?;
     let value_overrides = parse_cli_value_overrides(&requested_values)?;
     apply_cli_values(&mut apps, &value_overrides)?;
-    let targets = build_deployment_targets(apps, home, &node, &workspace, use_defaults).await?;
+    let targets = build_deployment_targets(apps, &home, &node, &workspace, use_defaults).await?;
 
     Ok(PreparedDeployment {
         provider,

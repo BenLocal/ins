@@ -2,7 +2,8 @@ use async_trait::async_trait;
 
 use crate::cli::{CommandContext, CommandTrait};
 use crate::pipeline::{
-    PipelineArgs, PipelineMode, PreparedDeployment, execute_pipeline, prepare_deployment,
+    PipelineArgs, PipelineContext, PipelineMode, PreparedDeployment, execute_pipeline,
+    prepare_deployment,
 };
 
 #[derive(clap::Args, Clone, Debug)]
@@ -19,18 +20,8 @@ impl CommandTrait for CheckCommand {
     type Args = CheckArgs;
 
     async fn run(args: CheckArgs, ctx: CommandContext) -> anyhow::Result<()> {
-        let args = args.pipeline;
-        let prepared: PreparedDeployment = prepare_deployment(
-            &ctx.home,
-            &ctx.config,
-            args.provider,
-            args.workspace,
-            args.node,
-            args.values,
-            args.defaults,
-            args.apps,
-        )
-        .await?;
+        let prepared: PreparedDeployment =
+            prepare_deployment(PipelineContext::new(&ctx, args.pipeline)).await?;
 
         execute_pipeline(
             &ctx.home,

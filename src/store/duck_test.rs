@@ -1,8 +1,27 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::*;
+
+#[test]
+fn db_path_keeps_store_under_dot_ins_when_home_is_dot_ins() {
+    let p = db_path(Path::new("/root/proj/.ins"));
+    assert_eq!(
+        p,
+        PathBuf::from("/root/proj/.ins/store/deploy_history.duckdb")
+    );
+}
+
+#[test]
+fn db_path_inserts_dot_ins_when_home_is_bare_directory() {
+    let p = db_path(Path::new("/root/proj"));
+    assert_eq!(
+        p,
+        PathBuf::from("/root/proj/.ins/store/deploy_history.duckdb")
+    );
+}
+
 use crate::app::types::{AppValue, ScriptHook};
 use crate::provider::DeploymentTarget;
 use serde_json::json;

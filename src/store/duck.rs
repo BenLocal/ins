@@ -284,7 +284,20 @@ fn ensure_schema(conn: &Connection) -> anyhow::Result<()> {
 }
 
 fn db_path(home: &Path) -> PathBuf {
-    home.join("store").join("deploy_history.duckdb")
+    store_dir(home).join("deploy_history.duckdb")
+}
+
+/// Store data lives under `<home>/.ins/store/`. When `home` already points at
+/// a `.ins/` directory (the common case — `default_home_dir` returns that),
+/// we don't double the prefix. This keeps every bit of persistent state
+/// (config, nodes.json, volumes.json, deploy history) under a single `.ins/`
+/// tree regardless of how the user invokes `--home`.
+fn store_dir(home: &Path) -> PathBuf {
+    if home.file_name().and_then(|n| n.to_str()) == Some(".ins") {
+        home.join("store")
+    } else {
+        home.join(".ins").join("store")
+    }
 }
 
 fn node_name(node: &NodeRecord) -> &str {

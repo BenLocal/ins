@@ -100,10 +100,16 @@ async fn load_available_app_choices(app_home: &Path) -> anyhow::Result<Vec<AppCh
         apps.push(AppChoice {
             label: app_choice_label(&app),
             name: app.name,
+            order: app.order,
         });
     }
 
-    apps.sort_by(|left, right| left.name.cmp(&right.name));
+    apps.sort_by(|a, b| match (a.order, b.order) {
+        (Some(x), Some(y)) => x.cmp(&y).then_with(|| a.name.cmp(&b.name)),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => a.name.cmp(&b.name),
+    });
     Ok(apps)
 }
 
@@ -115,6 +121,7 @@ pub(super) fn app_qa_file(app_dir: &Path) -> PathBuf {
 struct AppChoice {
     name: String,
     label: String,
+    order: Option<i64>,
 }
 
 pub(crate) fn app_choice_label(app: &AppRecord) -> String {

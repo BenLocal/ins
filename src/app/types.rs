@@ -6,6 +6,10 @@ pub(crate) struct AppRecord {
     pub(crate) name: String,
     pub(crate) version: Option<String>,
     pub(crate) description: Option<String>,
+    /// Sort key for `ins app list`. Lower numbers come first. Apps without
+    /// `order` set are displayed after all ordered apps, sorted by name.
+    #[serde(default)]
+    pub(crate) order: Option<i64>,
     pub(crate) author_name: Option<String>,
     pub(crate) author_email: Option<String>,
     #[serde(default)]
@@ -55,4 +59,15 @@ pub(crate) struct AppValueOption {
     pub(crate) name: String,
     pub(crate) description: Option<String>,
     pub(crate) value: Option<Value>,
+}
+
+/// Sort apps for display. `order` ascending wins; apps without `order` come
+/// after all ordered ones; ties break alphabetically by name.
+pub(crate) fn sort_apps_for_display(apps: &mut [AppRecord]) {
+    apps.sort_by(|a, b| match (a.order, b.order) {
+        (Some(x), Some(y)) => x.cmp(&y).then_with(|| a.name.cmp(&b.name)),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => a.name.cmp(&b.name),
+    });
 }

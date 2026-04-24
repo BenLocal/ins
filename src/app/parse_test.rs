@@ -208,6 +208,46 @@ fn expand_env_uses_extra_env_when_process_unset() {
 }
 
 #[tokio::test]
+async fn load_app_record_parses_optional_order_field() -> anyhow::Result<()> {
+    let test_dir = unique_test_dir("parse-order");
+    let qa_file = test_dir.join("qa.yaml");
+    let qa = r#"
+name: demo
+order: 5
+values: []
+"#;
+
+    fs::create_dir_all(&test_dir).await?;
+    fs::write(&qa_file, qa.trim_start()).await?;
+
+    let record = load_app_record(&qa_file, &no_env()).await?;
+    assert_eq!(record.order, Some(5));
+
+    fs::remove_dir_all(&test_dir).await?;
+    Ok(())
+}
+
+#[test]
+fn sort_apps_puts_ordered_first_then_alphabetical_unordered() {
+    use crate::app::types::{AppRecord, sort_apps_for_display};
+    let mk = |name: &str, order: Option<i64>| AppRecord {
+        name: name.into(),
+        order,
+        ..Default::default()
+    };
+    let mut apps = vec![
+        mk("zebra", None),
+        mk("apple", None),
+        mk("mysql", Some(10)),
+        mk("redis", Some(5)),
+        mk("nginx", Some(10)),
+    ];
+    sort_apps_for_display(&mut apps);
+    let names: Vec<_> = apps.iter().map(|a| a.name.as_str()).collect();
+    assert_eq!(names, vec!["redis", "mysql", "nginx", "apple", "zebra"]);
+}
+
+#[tokio::test]
 async fn load_app_record_applies_env_var_substitution() -> anyhow::Result<()> {
     unsafe { env::set_var("INS_TEST_LOAD_PW", "super-secret") };
     let test_dir = unique_test_dir("parse-envvars");

@@ -6,6 +6,9 @@ name: <name>
 version: <version>
 # Application description
 description: <description>
+# Optional sort key for `ins app list`. Lower numbers come first; apps without
+# `order` are listed after ordered apps, sorted alphabetically by name.
+# order: 10
 # Author name and email
 author_name: <author_name>
 author_email: <author_email>

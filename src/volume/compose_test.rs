@@ -25,6 +25,7 @@ fn app(name: &str, volumes: &[&str], all_volume: bool) -> AppRecord {
         name: name.into(),
         version: None,
         description: None,
+        order: None,
         author_name: None,
         author_email: None,
         dependencies: vec![],

@@ -35,6 +35,7 @@ fn render_structured_list_formats_apps_as_json_when_requested() {
         name: "demo".into(),
         version: Some("1.0.0".into()),
         description: Some("sample".into()),
+        order: None,
         author_name: Some("Alice".into()),
         author_email: Some("alice@example.com".into()),
         dependencies: vec!["redis".into()],

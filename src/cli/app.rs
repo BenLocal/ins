@@ -118,7 +118,7 @@ pub(crate) async fn list_app_records(
         apps.push(record);
     }
 
-    apps.sort_by(|left, right| left.name.cmp(&right.name));
+    crate::app::types::sort_apps_for_display(&mut apps);
     Ok(apps)
 }
 

@@ -13,6 +13,7 @@ fn build_provider_envs_includes_app_metadata_and_values() {
             name: "alpha".into(),
             version: Some("1.2.3".into()),
             description: Some("demo".into()),
+            order: None,
             author_name: Some("Alice".into()),
             author_email: Some("alice@example.com".into()),
             dependencies: vec!["redis".into()],

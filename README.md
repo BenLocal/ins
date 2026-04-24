@@ -24,20 +24,40 @@
 
 ## Build and Test
 
-DuckDB is used for deployment history. In environments without a system `libduckdb`, use the bundled feature:
+DuckDB is used for deployment history. In environments without a system `libduckdb`, use the bundled feature (the Makefile passes this automatically).
+
+### Install
+
+`make install` compiles with `--features duckdb-bundled` and copies the binary to `~/.cargo/bin/ins` so you can invoke `ins` from anywhere on your PATH.
 
 ```bash
-cargo test --features duckdb-bundled
+make install
+ins --help
 ```
 
-Useful commands:
+### Common Makefile targets
+
+| Target             | What it does                                         |
+| ------------------ | ---------------------------------------------------- |
+| `make build`       | Debug build with bundled DuckDB                      |
+| `make release`     | Portable release build with bundled DuckDB           |
+| `make install`     | `cargo install --path .` into `~/.cargo/bin`         |
+| `make test`        | Run the full test suite                              |
+| `make test-one TEST=<substring>` | Run tests matching a substring         |
+| `make fmt` / `make fmt-check`    | Format / verify formatting             |
+| `make clippy`      | Lint with `-D warnings`                              |
+| `make check`       | Full CI gate: `fmt-check` + `clippy` + `test`        |
+| `make run ARGS="volume list"`    | Run the CLI with args                  |
+| `make clean`       | `cargo clean`                                        |
+
+### Raw cargo
+
+If you prefer cargo directly, remember to pass `--features duckdb-bundled` when `libduckdb` isn't installed system-wide:
 
 ```bash
-cargo build
-cargo run -- --help
+cargo build --features duckdb-bundled
 cargo run --features duckdb-bundled -- check --help
-cargo fmt
-cargo clippy --all-targets --all-features
+cargo test --features duckdb-bundled
 cargo build --release --features duckdb-bundled
 ```
 

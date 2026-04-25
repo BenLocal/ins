@@ -48,15 +48,17 @@ pub async fn load_latest_deployment_record(
     home: &Path,
     node: &NodeRecord,
     workspace: &Path,
+    namespace: &str,
     app_name: &str,
 ) -> anyhow::Result<Option<StoredDeploymentRecord>> {
     let db_path = db_path(home);
     let workspace = workspace.display().to_string();
     let app_name = app_name.to_string();
     let node_name = node_name(node).to_string();
+    let namespace = namespace.to_string();
 
     tokio::task::spawn_blocking(move || {
-        load_latest_deployment_record_sync(&db_path, &node_name, &workspace, &app_name)
+        load_latest_deployment_record_sync(&db_path, &node_name, &workspace, &namespace, &app_name)
     })
     .await
     .map_err(|e| anyhow!("join duckdb lookup: {}", e))?
@@ -67,6 +69,7 @@ pub async fn save_deployment_record(
     node: &NodeRecord,
     workspace: &Path,
     target: &DeploymentTarget,
+    namespace: &str,
     qa_yaml: &str,
 ) -> anyhow::Result<()> {
     let db_path = db_path(home);
@@ -76,6 +79,7 @@ pub async fn save_deployment_record(
         workspace: workspace.display().to_string(),
         app_name: target.app.name.clone(),
         service: target.service.clone(),
+        namespace: namespace.to_string(),
         app_values_json: serde_json::to_string(&app_values_map(&target.app))
             .context("serialize app values")?,
         qa_yaml: qa_yaml.to_string(),
@@ -109,6 +113,7 @@ fn load_latest_deployment_record_sync(
     db_path: &Path,
     node_name: &str,
     workspace: &str,
+    namespace: &str,
     app_name: &str,
 ) -> anyhow::Result<Option<StoredDeploymentRecord>> {
     let conn = open_db(db_path)?;
@@ -118,13 +123,13 @@ fn load_latest_deployment_record_sync(
         .prepare(
             "SELECT service, COALESCE(namespace, 'default'), app_values_json, qa_yaml, created_at_ms
              FROM deployment_history
-             WHERE node_name = ? AND workspace = ? AND app_name = ?
+             WHERE node_name = ? AND workspace = ? AND COALESCE(namespace, 'default') = ? AND app_name = ?
              ORDER BY created_at_ms DESC
              LIMIT 1",
         )
         .context("prepare deployment history lookup")?;
     let mut rows = stmt
-        .query(params![node_name, workspace, app_name])
+        .query(params![node_name, workspace, namespace, app_name])
         .context("query deployment history")?;
 
     let Some(row) = rows.next().context("read deployment history row")? else {
@@ -161,13 +166,14 @@ fn save_deployment_record_sync(
             app_values_json,
             qa_yaml,
             created_at_ms
-        ) VALUES (?, ?, ?, ?, ?, 'default', ?, ?, ?)",
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         params![
             record.node_name,
             record.node_json,
             record.workspace,
             record.app_name,
             record.service,
+            record.namespace,
             record.app_values_json,
             record.qa_yaml,
             record.created_at_ms
@@ -343,6 +349,7 @@ struct SaveDeploymentRecord {
     workspace: String,
     app_name: String,
     service: String,
+    namespace: String,
     app_values_json: String,
     qa_yaml: String,
     created_at_ms: i64,

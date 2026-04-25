@@ -66,6 +66,7 @@ values: []
             },
             "demo-web".into(),
         ),
+        "default",
         "name: demo\nvalues: []\n",
     )
     .await?;
@@ -142,6 +143,7 @@ values: []
             },
             "demo-web".into(),
         ),
+        "default",
         "name: demo\nvalues: []\n",
     )
     .await?;

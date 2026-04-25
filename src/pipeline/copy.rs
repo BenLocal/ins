@@ -82,7 +82,7 @@ pub async fn copy_apps_to_workspace_with_output(
             "Save deployment record for app '{}' into service '{}'",
             target.app.name, target.service
         ));
-        save_deployment_record(home, node, workspace, target, &qa_yaml).await?;
+        save_deployment_record(home, node, workspace, target, "default", &qa_yaml).await?;
     }
 
     target_file_for_node(node).create_dir_all(workspace).await?;

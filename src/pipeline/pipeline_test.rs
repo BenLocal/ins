@@ -165,6 +165,7 @@ values:
         &node,
         PathBuf::from("/srv/demo").as_path(),
         &target,
+        "default",
         "name: demo\nvalues: []\n",
     )
     .await?;

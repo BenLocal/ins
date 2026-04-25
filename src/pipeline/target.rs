@@ -172,7 +172,7 @@ pub(super) async fn build_deployment_targets(
         let preset = if use_defaults {
             None
         } else {
-            load_latest_deployment_record(home, node, workspace, &app.name).await?
+            load_latest_deployment_record(home, node, workspace, "default", &app.name).await?
         };
         let target = build_deployment_target(app, preset.as_ref(), use_defaults)?;
         targets.push(target);

@@ -86,6 +86,24 @@ impl ProbeCache {
     }
 }
 
+/// `{{ node }}` exposes the deploying node's name and IP. Local nodes
+/// always report `127.0.0.1`. Remote nodes use the registered IP from
+/// `nodes.json`. Other `RemoteNodeRecord` fields (port, user, password,
+/// key_path) are intentionally not exposed — password/key_path are secrets
+/// and port/user are rarely useful from inside a container.
+fn node_template_value(node: &NodeRecord) -> Value {
+    match node {
+        NodeRecord::Local() => serde_json::json!({
+            "name": "local",
+            "ip": "127.0.0.1",
+        }),
+        NodeRecord::Remote(remote) => serde_json::json!({
+            "name": remote.name,
+            "ip": remote.ip,
+        }),
+    }
+}
+
 fn no_gpu_value() -> Value {
     let empty: Vec<String> = Vec::new();
     serde_json::json!({
@@ -133,6 +151,7 @@ pub(super) fn build_target_template_values(
     if let Some(obj) = template_values.as_object_mut() {
         obj.insert("service".into(), Value::String(target.service.clone()));
         obj.insert("namespace".into(), Value::String(namespace.to_string()));
+        obj.insert("node".into(), node_template_value(node));
         let volumes_json = resolved_volumes_to_json(&target.app, node, volumes_config)?;
         obj.insert("volumes".into(), volumes_json);
     }
@@ -224,7 +243,7 @@ fn resolved_volumes_to_json(
 fn debug_print_template_values(app_name: &str, template_values: &Value, output: &ExecutionOutput) {
     output.line("----------------------------");
     output.line(format!("Template values for app '{app_name}':"));
-    for section in ["service", "namespace", "app", "vars", "volumes"] {
+    for section in ["service", "namespace", "node", "app", "vars", "volumes"] {
         let Some(value) = template_values.get(section) else {
             continue;
         };
@@ -304,6 +323,7 @@ pub(super) fn render_template(
             volumes => template_values.get("volumes").cloned().unwrap_or(Value::Null),
             service => template_values.get("service").cloned().unwrap_or(Value::Null),
             namespace => template_values.get("namespace").cloned().unwrap_or(Value::Null),
+            node => template_values.get("node").cloned().unwrap_or(Value::Null),
         })
         .map_err(|e| anyhow!("render template: {}", e))
 }
@@ -353,3 +373,7 @@ pub fn rendered_template_name(file_name: &str) -> &str {
         .or_else(|| file_name.strip_suffix(".j2"))
         .unwrap_or(file_name)
 }
+
+#[cfg(test)]
+#[path = "template_test.rs"]
+mod template_test;

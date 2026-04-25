@@ -21,6 +21,7 @@
 | `volumes`     | `volumes:` 列表 + `ins volume` 记录合并结果  | 以卷的逻辑名为 key，返回该节点上卷的 docker 侧信息                                       |
 | `service`     | 部署目标的 service 名                        | 通常等于 app 名，可在 `ins deploy --service <name>` 时被覆盖                             |
 | `namespace`   | `--namespace` 参数（默认 `default`）          | 当前部署的 namespace 字符串，可用于在生成文件里标注归属                                  |
+| `node`        | 部署目标节点的 `NodeRecord`                   | `node.name` 和 `node.ip`，本地节点固定 `name=local` / `ip=127.0.0.1`                     |
 
 ### 1.1 `app`
 
@@ -109,6 +110,22 @@ labels:
 
 ```jinja
 # generated for {{ app.name }} ({{ namespace }})
+```
+
+### 1.6 `node`
+
+部署目标节点的基本信息：
+
+| 字段        | 类型     | 备注                                              |
+| ----------- | -------- | ------------------------------------------------- |
+| `node.name` | string   | 节点名。本地节点固定为 `local`                    |
+| `node.ip`   | string   | 节点 IP。本地节点固定为 `127.0.0.1`               |
+
+不暴露 `port` / `user` / `password` / `key_path`（前两个用处不大，后两个是凭证不能泄漏到模板里）。需要 `INS_NODE_NAME` 环境变量请见 [env-vars.md](./env-vars.md)。
+
+```jinja
+# 生成的容器镜像里写一句"我从哪个节点来的"
+LABEL ins.deployed_to_node="{{ node.name }} ({{ node.ip }})"
 ```
 
 ---

@@ -248,7 +248,7 @@ async fn copy_apps_to_workspace_rewrites_compose_volumes_and_returns_resolved() 
     )];
 
     let probe_cache = std::sync::Arc::new(crate::pipeline::ProbeCache::new(node.clone()));
-    let resolved = copy_apps_to_workspace_with_output(
+    let copy_outcome = copy_apps_to_workspace_with_output(
         &home,
         std::slice::from_ref(&target),
         &home.join("app"),
@@ -261,8 +261,8 @@ async fn copy_apps_to_workspace_rewrites_compose_volumes_and_returns_resolved() 
     )
     .await?;
 
-    assert_eq!(resolved.len(), 1);
-    assert_eq!(resolved[0].docker_name, "ins_data");
+    assert_eq!(copy_outcome.volumes.len(), 1);
+    assert_eq!(copy_outcome.volumes[0].docker_name, "ins_data");
 
     let rendered =
         fs::read_to_string(workspace.join("vol-demo").join("docker-compose.yml")).await?;

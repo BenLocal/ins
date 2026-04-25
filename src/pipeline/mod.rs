@@ -160,7 +160,7 @@ pub async fn execute_pipeline_with_output(
         print_probe_catalog(&probe_cache, &output).await;
     }
 
-    let resolved_volumes = copy_apps_to_workspace_with_output(
+    let copy_outcome = copy_apps_to_workspace_with_output(
         home,
         &prepared.targets,
         &prepared.app_home,
@@ -194,7 +194,8 @@ pub async fn execute_pipeline_with_output(
         prepared.workspace,
         envs,
         output.clone(),
-        resolved_volumes,
+        copy_outcome.volumes,
+        copy_outcome.services_with_build,
     );
 
     match mode {

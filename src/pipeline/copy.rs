@@ -5,6 +5,8 @@ use anyhow::anyhow;
 use tokio::fs;
 use tokio::task::JoinSet;
 
+use std::collections::BTreeSet;
+
 use crate::app::types::AppRecord;
 use crate::execution_output::ExecutionOutput;
 use crate::file::FileTrait;
@@ -28,6 +30,16 @@ use super::template::{
 };
 use super::{COPY_CONCURRENCY, node_name};
 
+pub struct CopyOutcome {
+    pub volumes: Vec<ResolvedVolume>,
+    pub services_with_build: BTreeSet<String>,
+}
+
+struct FileCopyOutcome {
+    volumes: Vec<ResolvedVolume>,
+    has_build: bool,
+}
+
 /// Everything a copy task needs that is constant across files within one target.
 #[derive(Clone)]
 struct CopyContext {
@@ -49,7 +61,7 @@ pub async fn copy_apps_to_workspace(
 ) -> anyhow::Result<()> {
     let output = ExecutionOutput::stdout();
     let probe_cache = Arc::new(ProbeCache::new(node.clone()));
-    copy_apps_to_workspace_with_output(
+    let _ = copy_apps_to_workspace_with_output(
         home,
         targets,
         app_home,
@@ -75,7 +87,7 @@ pub async fn copy_apps_to_workspace_with_output(
     probe_cache: &Arc<ProbeCache>,
     output: &ExecutionOutput,
     namespace: &str,
-) -> anyhow::Result<Vec<ResolvedVolume>> {
+) -> anyhow::Result<CopyOutcome> {
     output.line("Saving deployment records...");
     for target in targets {
         let source_dir = app_home.join(&target.app.name);
@@ -93,6 +105,7 @@ pub async fn copy_apps_to_workspace_with_output(
     target_file_for_node(node).create_dir_all(workspace).await?;
 
     let mut resolved_volumes: Vec<ResolvedVolume> = Vec::new();
+    let mut services_with_build: BTreeSet<String> = BTreeSet::new();
 
     output.line("Copying app files to workspace...");
     for target in targets {
@@ -119,9 +132,12 @@ pub async fn copy_apps_to_workspace_with_output(
         )
         .await?
         {
-            let mut batch =
+            let (mut batch, target_has_build) =
                 copy_dir_recursive(&source_dir, &target_dir, &ctx, Some(progress.clone())).await?;
             resolved_volumes.append(&mut batch);
+            if target_has_build {
+                services_with_build.insert(target.service.clone());
+            }
             progress.finish();
         } else {
             output.line(format!(
@@ -130,12 +146,19 @@ pub async fn copy_apps_to_workspace_with_output(
                 target.service,
                 target_dir.display()
             ));
-            let mut batch = copy_dir_recursive(&source_dir, &target_dir, &ctx, None).await?;
+            let (mut batch, target_has_build) =
+                copy_dir_recursive(&source_dir, &target_dir, &ctx, None).await?;
             resolved_volumes.append(&mut batch);
+            if target_has_build {
+                services_with_build.insert(target.service.clone());
+            }
         }
     }
 
-    Ok(dedupe_volumes(resolved_volumes))
+    Ok(CopyOutcome {
+        volumes: dedupe_volumes(resolved_volumes),
+        services_with_build,
+    })
 }
 
 fn dedupe_volumes(volumes: Vec<ResolvedVolume>) -> Vec<ResolvedVolume> {
@@ -154,20 +177,21 @@ async fn copy_dir_recursive(
     target: &Path,
     ctx: &CopyContext,
     progress: Option<Arc<CopyAppProgress>>,
-) -> anyhow::Result<Vec<ResolvedVolume>> {
+) -> anyhow::Result<(Vec<ResolvedVolume>, bool)> {
     let jobs = collect_copy_jobs(source, target).await?;
     target_file_for_node(&ctx.node)
         .create_dir_all(target)
         .await?;
 
     if jobs.is_empty() {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), false));
     }
 
     let mut join_set = JoinSet::new();
     let mut next_job = 0usize;
     let mut available_slots: Vec<usize> = (0..COPY_CONCURRENCY.min(jobs.len())).rev().collect();
     let mut resolved = Vec::new();
+    let mut target_has_build = false;
 
     loop {
         while next_job < jobs.len() && !available_slots.is_empty() {
@@ -186,19 +210,20 @@ async fn copy_dir_recursive(
             break;
         };
         let (slot, result) = joined.map_err(|e| anyhow!("copy task join error: {}", e))?;
-        let mut batch = result?;
-        resolved.append(&mut batch);
+        let mut outcome = result?;
+        resolved.append(&mut outcome.volumes);
+        target_has_build = target_has_build || outcome.has_build;
         available_slots.push(slot);
     }
 
-    Ok(resolved)
+    Ok((resolved, target_has_build))
 }
 
 async fn copy_file_to_workspace(
     job: CopyJob,
     ctx: &CopyContext,
     progress: Option<CopyProgressSlot>,
-) -> anyhow::Result<Vec<ResolvedVolume>> {
+) -> anyhow::Result<FileCopyOutcome> {
     let source_file = LocalFile;
     let target_file = target_file_for_node(&ctx.node);
 
@@ -217,15 +242,16 @@ async fn copy_file_to_workspace(
             .await
             .map_err(|e| anyhow!("read template {}: {}", job.source_path.display(), e))?;
         let rendered = render_template(&source, &ctx.template_values, &ctx.probe_cache)?;
-        let rendered = maybe_inject_compose_labels(
+        let label_outcome = maybe_inject_compose_labels(
             &job.target_path,
             &rendered,
             &ctx.template_values,
             &ctx.node,
         )?;
+        let has_build = label_outcome.has_build;
         let (rendered, resolved) = maybe_inject_compose_volumes(
             &job.target_path,
-            rendered,
+            label_outcome.content,
             &ctx.app,
             &ctx.node,
             &ctx.volumes_config,
@@ -242,7 +268,10 @@ async fn copy_file_to_workspace(
         if let Some(progress) = progress.as_ref() {
             progress.finish_file();
         }
-        return Ok(resolved);
+        return Ok(FileCopyOutcome {
+            volumes: resolved,
+            has_build,
+        });
     }
 
     let source_meta = fs::metadata(&job.source_path)
@@ -270,15 +299,16 @@ async fn copy_file_to_workspace(
                 e
             )
         })?;
-        let rendered = maybe_inject_compose_labels(
+        let label_outcome = maybe_inject_compose_labels(
             &job.target_path,
             &source,
             &ctx.template_values,
             &ctx.node,
         )?;
+        let has_build = label_outcome.has_build;
         let (rendered, resolved) = maybe_inject_compose_volumes(
             &job.target_path,
-            rendered,
+            label_outcome.content,
             &ctx.app,
             &ctx.node,
             &ctx.volumes_config,
@@ -295,7 +325,10 @@ async fn copy_file_to_workspace(
         if let Some(progress) = progress.as_ref() {
             progress.finish_file();
         }
-        return Ok(resolved);
+        return Ok(FileCopyOutcome {
+            volumes: resolved,
+            has_build,
+        });
     }
     if let Some(progress) = progress.as_ref() {
         progress.begin_write_phase(source_size);
@@ -315,7 +348,10 @@ async fn copy_file_to_workspace(
     if let Some(progress) = progress.as_ref() {
         progress.finish_file();
     }
-    Ok(Vec::new())
+    Ok(FileCopyOutcome {
+        volumes: Vec::new(),
+        has_build: false,
+    })
 }
 
 fn maybe_inject_compose_volumes(

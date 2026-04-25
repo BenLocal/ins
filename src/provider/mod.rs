@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use crate::execution_output::ExecutionOutput;
@@ -31,6 +32,7 @@ pub struct ProviderContext {
     pub envs: BTreeMap<String, BTreeMap<String, String>>,
     pub output: ExecutionOutput,
     pub volumes: Vec<ResolvedVolume>,
+    pub services_with_build: BTreeSet<String>,
 }
 
 impl ProviderContext {
@@ -44,6 +46,7 @@ impl ProviderContext {
         envs: BTreeMap<String, BTreeMap<String, String>>,
         output: ExecutionOutput,
         volumes: Vec<ResolvedVolume>,
+        services_with_build: BTreeSet<String>,
     ) -> Self {
         Self {
             provider,
@@ -54,6 +57,7 @@ impl ProviderContext {
             envs,
             output,
             volumes,
+            services_with_build,
         }
     }
 

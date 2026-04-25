@@ -7,6 +7,11 @@ use crate::node::types::NodeRecord;
 
 use super::node_name;
 
+pub(crate) struct ComposeRewriteOutcome {
+    pub content: String,
+    pub has_build: bool,
+}
+
 pub(crate) fn is_docker_compose_file(path: &Path) -> bool {
     matches!(
         path.file_name().and_then(|name| name.to_str()),
@@ -19,9 +24,12 @@ pub(crate) fn maybe_inject_compose_labels(
     content: &str,
     template_values: &serde_json::Value,
     node: &NodeRecord,
-) -> anyhow::Result<String> {
+) -> anyhow::Result<ComposeRewriteOutcome> {
     if !is_docker_compose_file(path) {
-        return Ok(content.to_string());
+        return Ok(ComposeRewriteOutcome {
+            content: content.to_string(),
+            has_build: false,
+        });
     }
     inject_compose_labels(
         content,
@@ -32,24 +40,34 @@ pub(crate) fn maybe_inject_compose_labels(
 fn inject_compose_labels(
     content: &str,
     metadata_labels: &BTreeMap<String, String>,
-) -> anyhow::Result<String> {
+) -> anyhow::Result<ComposeRewriteOutcome> {
     let mut document: serde_yaml::Value =
         serde_yaml::from_str(content).map_err(|e| anyhow!("parse compose yaml: {}", e))?;
 
     let Some(root) = document.as_mapping_mut() else {
-        return Ok(content.to_string());
+        return Ok(ComposeRewriteOutcome {
+            content: content.to_string(),
+            has_build: false,
+        });
     };
     let Some(services) = root
         .get_mut(serde_yaml::Value::String("services".into()))
         .and_then(serde_yaml::Value::as_mapping_mut)
     else {
-        return Ok(content.to_string());
+        return Ok(ComposeRewriteOutcome {
+            content: content.to_string(),
+            has_build: false,
+        });
     };
 
+    let mut has_build = false;
     for service in services.values_mut() {
         let Some(service_mapping) = service.as_mapping_mut() else {
             continue;
         };
+        if service_mapping.contains_key(serde_yaml::Value::String("build".into())) {
+            has_build = true;
+        }
         let labels_key = serde_yaml::Value::String("labels".into());
         let existing = service_mapping.remove(&labels_key);
         let mut labels = labels_value_to_mapping(existing)?;
@@ -64,7 +82,9 @@ fn inject_compose_labels(
         service_mapping.insert(labels_key, serde_yaml::Value::Mapping(labels));
     }
 
-    serde_yaml::to_string(&document).map_err(|e| anyhow!("serialize compose yaml: {}", e))
+    let content =
+        serde_yaml::to_string(&document).map_err(|e| anyhow!("serialize compose yaml: {}", e))?;
+    Ok(ComposeRewriteOutcome { content, has_build })
 }
 
 fn labels_value_to_mapping(
@@ -136,3 +156,7 @@ fn insert_compose_label(
         .unwrap_or_else(|| value.to_string());
     labels.insert(key.to_string(), text);
 }
+
+#[cfg(test)]
+#[path = "labels_test.rs"]
+mod labels_test;

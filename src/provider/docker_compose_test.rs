@@ -1,4 +1,4 @@
-use super::{ComposeCommandKind, docker_compose_shell_command};
+use super::{ComposeCommandKind, compose_has_build_directive, docker_compose_shell_command};
 use crate::volume::types::ResolvedVolume;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -72,4 +72,75 @@ fn docker_volume_ensure_remote_shell_command_has_inspect_guard() {
     assert!(cmd.contains("docker volume inspect 'ins_data'"));
     assert!(cmd.contains("docker volume create"));
     assert!(cmd.contains("--opt 'device=/mnt/data'"));
+}
+
+#[test]
+fn compose_has_build_directive_detects_service_build_block() {
+    let yaml = "\
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+";
+    assert!(compose_has_build_directive(yaml));
+}
+
+#[test]
+fn compose_has_build_directive_detects_short_form_build() {
+    let yaml = "\
+services:
+  web:
+    build: .
+";
+    assert!(compose_has_build_directive(yaml));
+}
+
+#[test]
+fn compose_has_build_directive_returns_false_for_image_only_service() {
+    let yaml = "\
+services:
+  web:
+    image: nginx:latest
+    ports:
+      - '8080:80'
+";
+    assert!(!compose_has_build_directive(yaml));
+}
+
+#[test]
+fn compose_has_build_directive_returns_false_for_no_services_section() {
+    let yaml = "version: '3.9'\n";
+    assert!(!compose_has_build_directive(yaml));
+}
+
+#[test]
+fn compose_has_build_directive_returns_false_for_invalid_yaml() {
+    let yaml = "::: not yaml :::";
+    assert!(!compose_has_build_directive(yaml));
+}
+
+#[test]
+fn compose_has_build_directive_only_inspects_services_section() {
+    // A top-level `build:` (not under services) must NOT trigger the flag.
+    let yaml = "\
+build: ignored
+services:
+  web:
+    image: nginx:latest
+";
+    assert!(!compose_has_build_directive(yaml));
+}
+
+#[test]
+fn compose_has_build_directive_detects_build_on_one_of_many_services() {
+    let yaml = "\
+services:
+  web:
+    image: nginx:latest
+  api:
+    build:
+      context: ./api
+";
+    assert!(compose_has_build_directive(yaml));
 }

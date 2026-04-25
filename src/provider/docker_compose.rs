@@ -194,13 +194,16 @@ impl ProviderTrait for DockerComposeProvider {
                     )
                     .await?;
 
+                    let up_args = local_up_args_for_compose(&compose_file, &ctx.output).await?;
+                    let up_args_slice: Vec<&str> = up_args.iter().map(String::as_str).collect();
+
                     if ctx.output.echo_enabled() {
                         let mut child = spawn_local_compose_command(
                             compose_command,
                             &compose_file,
                             &app_dir,
                             &envs,
-                            &["up", "-d"],
+                            &up_args_slice,
                         )
                         .await
                         .with_context(|| {
@@ -230,7 +233,7 @@ impl ProviderTrait for DockerComposeProvider {
                             &compose_file,
                             &app_dir,
                             &envs,
-                            &["up", "-d"],
+                            &up_args_slice,
                         )
                         .await
                         .with_context(|| {
@@ -287,8 +290,10 @@ impl ProviderTrait for DockerComposeProvider {
                 for target in &ctx.targets {
                     let app_dir = ctx.workspace.join(&target.service);
                     let envs = ctx.env_for_target(&target.service);
+                    let up_args =
+                        remote_up_args_for_compose(&remote_file, &app_dir, &ctx.output).await?;
                     let command =
-                        docker_compose_shell_command(compose_command, &app_dir, &envs, "up -d");
+                        docker_compose_shell_command(compose_command, &app_dir, &envs, &up_args);
 
                     ctx.output.line(format!(
                         "Deploying app '{}' as service '{}' from {} on remote node '{}'",
@@ -486,6 +491,83 @@ fn build_local_compose_command(
     command.envs(envs);
     command.current_dir(app_dir);
     command
+}
+
+/// Returns true when any service in the compose document declares a `build:`
+/// directive (long-form mapping or short-form path). Used by `run` to decide
+/// whether to pass `--build` to `docker compose up` so locally-built images
+/// rebuild on every deploy. Bad YAML, missing `services`, or a top-level
+/// `build:` outside `services:` all return false — we only care about
+/// service-scoped build entries.
+fn compose_has_build_directive(content: &str) -> bool {
+    let Ok(value) = serde_yaml::from_str::<serde_yaml::Value>(content) else {
+        return false;
+    };
+    let Some(services) = value
+        .get("services")
+        .and_then(serde_yaml::Value::as_mapping)
+    else {
+        return false;
+    };
+    services.values().any(|svc| svc.get("build").is_some())
+}
+
+async fn local_up_args_for_compose(
+    compose_file: &std::path::Path,
+    output: &ExecutionOutput,
+) -> anyhow::Result<Vec<String>> {
+    let content = tokio::fs::read_to_string(compose_file)
+        .await
+        .with_context(|| {
+            format!(
+                "read compose file {} for build detection",
+                compose_file.display()
+            )
+        })?;
+    let mut args = vec!["up".to_string(), "-d".to_string()];
+    if compose_has_build_directive(&content) {
+        output.line(format!(
+            "Detected `build:` in {}; adding --build to docker compose up",
+            compose_file.display()
+        ));
+        args.push("--build".to_string());
+    }
+    Ok(args)
+}
+
+async fn remote_up_args_for_compose(
+    remote_file: &RemoteFile,
+    app_dir: &std::path::Path,
+    output: &ExecutionOutput,
+) -> anyhow::Result<String> {
+    let cat_command = format!(
+        "cd {dir} && \
+if [ -f docker-compose.yml ]; then cat docker-compose.yml; \
+elif [ -f docker-compose.yaml ]; then cat docker-compose.yaml; \
+else echo 'docker compose file not found' >&2; exit 127; fi",
+        dir = shell_quote(&app_dir.display().to_string())
+    );
+    let result = remote_file
+        .exec(&cat_command)
+        .await
+        .with_context(|| format!("cat remote compose file in {}", app_dir.display()))?;
+    if result.exit_status != 0 {
+        return Err(anyhow!(
+            "cannot read remote compose file in {} (exit {}): {}",
+            app_dir.display(),
+            result.exit_status,
+            render_remote_output(&result.stdout, &result.stderr)
+        ));
+    }
+    if compose_has_build_directive(&result.stdout) {
+        output.line(format!(
+            "Detected `build:` in remote {}/docker-compose.y(a)ml; adding --build to docker compose up",
+            app_dir.display()
+        ));
+        Ok("up -d --build".to_string())
+    } else {
+        Ok("up -d".to_string())
+    }
 }
 
 fn compose_file_for_target(

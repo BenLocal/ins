@@ -91,7 +91,6 @@ pub async fn save_deployment_record(
         .map_err(|e| anyhow!("join duckdb insert: {}", e))?
 }
 
-#[allow(dead_code)]
 pub async fn find_service_namespace_on_node(
     home: &Path,
     node: &NodeRecord,

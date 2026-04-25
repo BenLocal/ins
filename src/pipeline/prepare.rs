@@ -12,7 +12,9 @@ use crate::config::{InsConfig, persist_node_workspace_if_missing};
 use crate::node::list::load_all_nodes;
 use crate::node::types::NodeRecord;
 use crate::provider::DeploymentTarget;
-use crate::store::duck::{InstalledServiceRecord, load_installed_service_configs};
+use crate::store::duck::{
+    InstalledServiceRecord, find_service_namespace_on_node, load_installed_service_configs,
+};
 
 use super::target::{
     app_qa_file, apply_cli_values, build_deployment_targets, load_app_records_by_names,
@@ -30,6 +32,34 @@ pub(crate) fn resolve_namespace(input: Option<String>) -> anyhow::Result<String>
         .unwrap_or_else(|| DEFAULT_NAMESPACE.to_string());
     validate_namespace_name(&raw)?;
     Ok(raw)
+}
+
+pub(crate) async fn check_namespace_conflicts(
+    home: &Path,
+    node: &NodeRecord,
+    namespace: &str,
+    targets: &[DeploymentTarget],
+) -> anyhow::Result<()> {
+    for target in targets {
+        let Some(existing) = find_service_namespace_on_node(home, node, &target.service).await?
+        else {
+            continue;
+        };
+        if existing != namespace {
+            return Err(anyhow!(
+                "service '{}' already exists on node '{}' under namespace '{}'; \
+                 cannot deploy under namespace '{}'. \
+                 Run `ins service rm {}` first or redeploy under namespace '{}'.",
+                target.service,
+                node_name(node),
+                existing,
+                namespace,
+                target.service,
+                existing
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Bundle of everything `prepare_deployment` needs: shared CLI state
@@ -97,6 +127,8 @@ pub async fn prepare_deployment(ctx: PipelineContext) -> anyhow::Result<Prepared
     apply_cli_values(&mut apps, &value_overrides)?;
     let targets =
         build_deployment_targets(apps, &home, &node, &workspace, &namespace, use_defaults).await?;
+
+    check_namespace_conflicts(&home, &node, &namespace, &targets).await?;
 
     Ok(PreparedDeployment {
         provider,

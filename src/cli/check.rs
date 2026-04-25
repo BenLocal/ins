@@ -32,3 +32,7 @@ impl CommandTrait for CheckCommand {
         .await
     }
 }
+
+#[cfg(test)]
+#[path = "check_test.rs"]
+mod check_test;

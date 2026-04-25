@@ -750,6 +750,18 @@ fn build_deployment_target_with_defaults_errors_when_default_missing() {
     );
 }
 
+#[test]
+fn deploy_parses_namespace_flag() {
+    use clap::Parser;
+    #[derive(clap::Parser, Debug)]
+    struct Wrapper {
+        #[command(flatten)]
+        args: super::DeployArgs,
+    }
+    let parsed = Wrapper::parse_from(["test", "--namespace", "prod", "redis"]);
+    assert_eq!(parsed.args.pipeline.namespace.as_deref(), Some("prod"));
+}
+
 fn app_record(name: &str) -> AppRecord {
     AppRecord {
         name: name.into(),

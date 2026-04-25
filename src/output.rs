@@ -140,11 +140,19 @@ impl TableRenderable for AppRecord {
 
 impl TableRenderable for InstalledServiceRecord {
     fn headers() -> &'static [&'static str] {
-        &["service", "app", "node", "workspace", "created_at_ms"]
+        &[
+            "namespace",
+            "service",
+            "app",
+            "node",
+            "workspace",
+            "created_at_ms",
+        ]
     }
 
     fn row(&self) -> Vec<String> {
         vec![
+            self.namespace.clone(),
             self.service.clone(),
             self.app_name.clone(),
             self.node_name.clone(),

@@ -70,3 +70,22 @@ fn render_structured_list_uses_empty_message() {
 
     assert_eq!(rendered, "no services found");
 }
+
+#[test]
+fn installed_service_record_table_includes_namespace_column() {
+    use crate::output::TableRenderable;
+
+    let record = InstalledServiceRecord {
+        service: "web".into(),
+        namespace: "staging".into(),
+        app_name: "nginx".into(),
+        node_name: "node-a".into(),
+        workspace: "/srv/ws".into(),
+        created_at_ms: 1_700_000_000_000,
+    };
+
+    let headers = <InstalledServiceRecord as TableRenderable>::headers();
+    assert_eq!(headers.first().copied(), Some("namespace"));
+    let row = record.row();
+    assert_eq!(row.first(), Some(&String::from("staging")));
+}

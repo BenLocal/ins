@@ -259,6 +259,7 @@ fn render_service_action_confirm(
             action.service.service
         )),
         Line::from(""),
+        Line::from(format!("namespace: {}", action.service.namespace)),
         Line::from(format!("app: {}", action.service.app_name)),
         Line::from(format!("node: {}", action.service.node_name)),
         Line::from(format!("workspace: {}", action.service.workspace)),
@@ -294,6 +295,7 @@ fn render_service_action_result(
     let mut lines = vec![
         Line::from(format!("{verb} {status}")),
         Line::from(format!("service: {}", result.service.service)),
+        Line::from(format!("namespace: {}", result.service.namespace)),
         Line::from(format!("app: {}", result.service.app_name)),
         Line::from(format!("node: {}", result.service.node_name)),
         Line::from(format!("workspace: {}", result.service.workspace)),

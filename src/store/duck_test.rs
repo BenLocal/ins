@@ -187,6 +187,33 @@ async fn save_and_load_respects_namespace_partition() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn find_service_namespace_on_node_returns_existing_namespace() -> anyhow::Result<()> {
+    let home = unique_test_dir("duck-store-find-ns");
+    let workspace = home.join("workspace");
+    let node = NodeRecord::Local();
+    let target = DeploymentTarget::new(app_record("nginx", json!("nginx:1.0")), "web".into());
+
+    save_deployment_record(
+        &home,
+        &node,
+        &workspace,
+        &target,
+        "staging",
+        "name: nginx\n",
+    )
+    .await?;
+
+    let found = find_service_namespace_on_node(&home, &node, "web").await?;
+    assert_eq!(found.as_deref(), Some("staging"));
+
+    let absent = find_service_namespace_on_node(&home, &node, "missing").await?;
+    assert_eq!(absent, None);
+
+    std::fs::remove_dir_all(&home)?;
+    Ok(())
+}
+
 fn unique_test_dir(name: &str) -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)

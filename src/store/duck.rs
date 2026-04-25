@@ -91,6 +91,23 @@ pub async fn save_deployment_record(
         .map_err(|e| anyhow!("join duckdb insert: {}", e))?
 }
 
+#[allow(dead_code)]
+pub async fn find_service_namespace_on_node(
+    home: &Path,
+    node: &NodeRecord,
+    service: &str,
+) -> anyhow::Result<Option<String>> {
+    let db_path = db_path(home);
+    let node_name = node_name(node).to_string();
+    let service = service.to_string();
+
+    tokio::task::spawn_blocking(move || {
+        find_service_namespace_on_node_sync(&db_path, &node_name, &service)
+    })
+    .await
+    .map_err(|e| anyhow!("join duckdb conflict lookup: {}", e))?
+}
+
 pub async fn list_installed_services(home: &Path) -> anyhow::Result<Vec<InstalledServiceRecord>> {
     let db_path = db_path(home);
 
@@ -107,6 +124,33 @@ pub async fn load_installed_service_configs(
     tokio::task::spawn_blocking(move || load_installed_service_configs_sync(&db_path))
         .await
         .map_err(|e| anyhow!("join duckdb service config list: {}", e))?
+}
+
+fn find_service_namespace_on_node_sync(
+    db_path: &Path,
+    node_name: &str,
+    service: &str,
+) -> anyhow::Result<Option<String>> {
+    let conn = open_db(db_path)?;
+    ensure_schema(&conn)?;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT COALESCE(namespace, 'default')
+             FROM deployment_history
+             WHERE node_name = ? AND service = ?
+             ORDER BY created_at_ms DESC
+             LIMIT 1",
+        )
+        .context("prepare conflict lookup")?;
+    let mut rows = stmt
+        .query(params![node_name, service])
+        .context("query conflict lookup")?;
+    if let Some(row) = rows.next().context("read conflict lookup row")? {
+        Ok(Some(row.get(0).context("read namespace")?))
+    } else {
+        Ok(None)
+    }
 }
 
 fn load_latest_deployment_record_sync(

@@ -116,30 +116,40 @@ author_email: alice@example.com
 
 ### `dependencies`
 
-含义：
-声明当前 app 依赖哪些“已安装的 service”。
+含义：声明当前 app 依赖哪些”已安装的 service”。每个条目可选地带 namespace 前缀。
 
-是否必填：
-否。
+是否必填：否。
 
-示例：
+格式：
+
+| 写法 | 解析为 |
+|---|---|
+| `redis` | (default, redis) |
+| `:redis` | (default, redis) |
+| `staging:redis` | (staging, redis) |
+| `prod:mysql-main` | (prod, mysql-main) |
+
+只有依赖 service 在指定 namespace 下已安装时才注入对应环境变量。
+
+环境变量前缀规则（hybrid）：
+
+- 默认 namespace（`redis` / `:redis`）→ `INS_SERVICE_<SERVICE>_*`
+- 显式非默认 namespace（`<ns>:<service>`）→ `INS_SERVICE_<NS>_<SERVICE>_*`
+
+举例 ——
 
 ```yaml
 dependencies:
   - redis
-  - mysql-main
+  - staging:redis
 ```
 
-关键说明：
+会注入：
 
-- 这里匹配的是 service 名，不是 app 名
-- 只有依赖 service 已经存在安装记录时，才会注入对应环境变量
-- 当前 service 自己不会被当成依赖再次注入
-
-环境变量前缀规则：
-
-- `redis` 会生成前缀 `INS_SERVICE_REDIS_*`
-- `mysql-main` 会生成前缀 `INS_SERVICE_MYSQL_MAIN_*`
+```text
+INS_SERVICE_REDIS_*           # 来自 default 命名空间
+INS_SERVICE_STAGING_REDIS_*   # 来自 staging 命名空间
+```
 
 `dependencies` 本身不会生成单独变量，但会触发依赖 service 的变量注入。
 
@@ -199,6 +209,10 @@ dependencies:
 - `INS_SERVICE_REDIS_SERVICE`
   含义：依赖 service 的名字
   示例：`redis`
+
+- `INS_SERVICE_REDIS_NAMESPACE`
+  含义：依赖 service 所在的 namespace
+  示例：`default` / `staging`
 
 - `INS_SERVICE_REDIS_APP_NAME`
   含义：这个 service 对应的 app 名

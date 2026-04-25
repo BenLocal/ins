@@ -67,6 +67,7 @@ Short imperative subjects (e.g. `Extract shared deployment pipeline`). One logic
 | `docs/qa-yaml-dependencies-env.md` | `qa.yaml` `name`/`values`/`dependencies` → `INS_APP_NAME` / `INS_SERVICE_<DEP>_*` generation rules. Code lives in `src/env.rs`. |
 | `docs/volume-command.md`           | `ins volume` CLI surface, `VolumeRecord` types (filesystem/cifs), compose volume injection. |
 | `docs/check-and-deploy.md`         | `PipelineArgs` flags (`-n`/`-w`/`-p`/`-v`/`-d`), interactive vs non-interactive behavior, check-vs-deploy side-effect differences. |
+| `docs/namespaces.md`               | namespace CLI flag、qa.yaml `<ns>:<svc>` 解析、env-key hybrid 规则、`ALTER TABLE` 迁移、conflict guard。代码改动涉及 namespace 相关行为时需要同步更新。 |
 
 If your change adds a new concept that no existing doc covers, create a new `docs/<topic>.md` and link it from CLAUDE.md (this section) and from any related doc that now has a cross-reference. Do not leave the documentation stale; reviewers treat doc drift as a blocker.
 

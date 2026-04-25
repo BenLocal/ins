@@ -20,6 +20,7 @@
 | `vars`        | 每个 `values[]` 条目的解析结果               | 以 `name` 为 key，提供 `.<name>` 和 `.<name>_meta` 两种访问方式                          |
 | `volumes`     | `volumes:` 列表 + `ins volume` 记录合并结果  | 以卷的逻辑名为 key，返回该节点上卷的 docker 侧信息                                       |
 | `service`     | 部署目标的 service 名                        | 通常等于 app 名，可在 `ins deploy --service <name>` 时被覆盖                             |
+| `namespace`   | `--namespace` 参数（默认 `default`）          | 当前部署的 namespace 字符串，可用于在生成文件里标注归属                                  |
 
 ### 1.1 `app`
 
@@ -100,6 +101,14 @@ ports:
 ```jinja
 labels:
   com.example.service: "{{ service }}"
+```
+
+### 1.5 `namespace`
+
+当前部署的 namespace 字符串（默认 `default`）。可用于在生成文件里标注当前归属：
+
+```jinja
+# generated for {{ app.name }} ({{ namespace }})
 ```
 
 ---
@@ -193,9 +202,10 @@ values:
 | `INS_APP_NAME`                  | 当前 app 的 `name`                                                 |
 | `INS_SERVICE_NAME`              | 当前部署的 service 名                                              |
 | `INS_NODE_NAME`                 | 节点名（`local` 或 remote 的 `name`）                              |
+| `INS_NAMESPACE`                 | 当前部署的 namespace（默认 `default`）                             |
 | `INS_VERSION`                   | ins 版本号                                                         |
 | `<VALUE_NAME>`                  | 每个 qa.yaml value 对应的解析结果（name 会被大写、非字母数字转 `_`）|
-| `INS_SERVICE_<DEP>_*`           | `dependencies[]` 里每个已安装依赖 service 的元信息                 |
+| `INS_SERVICE_<DEP>_*`           | `dependencies[]` 里每个已安装依赖 service 的元信息（hybrid namespace 规则） |
 | `[defaults.env]` / `[nodes.<n>.env]` | `config.toml` 中用户配置的环境变量                            |
 
 详见 [qa-yaml-dependencies-env.md](./qa-yaml-dependencies-env.md)。

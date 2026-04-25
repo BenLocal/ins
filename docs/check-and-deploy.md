@@ -35,6 +35,21 @@ ins check nginx mysql redis
 ins check --node gpu-01 nginx
 ```
 
+### `--namespace <NAME>`
+
+部署 namespace。默认 `default`。同一次 `check` / `deploy` 调用所有 app 共享同一个 namespace。
+
+- 没有短选项（`-n` 已被 `--node` 占用）
+- 命名规则：`^[a-z0-9][a-z0-9_-]{0,63}$`，只允许小写字母、数字、`_`、`-`
+- 同一节点上同一个 service name **不允许**跨 namespace 共存：如果节点上已有 `default:web`，再跑 `ins deploy --namespace staging web` 会报错
+- 跨节点不受限：`default:web` 在 node-A、`staging:web` 在 node-B 是允许的
+- TUI 重新部署沿用记录里的 namespace，不需要再传 `--namespace`
+
+```bash
+ins deploy --namespace staging --node prod web api
+ins check  --node prod web                    # 不传 → namespace=default
+```
+
 ### `-w` / `--workspace <PATH>`
 
 渲染后的 app 文件放到哪里。ins 会把每个 app 复制到 `<workspace>/<service>/`，docker compose 在那儿跑。
@@ -149,3 +164,4 @@ ins deploy --provider k8s --node prod-k8s mysql
 - [template-values.md](./template-values.md) — `.j2` 模板能用的 `{{ vars.* }}` / `{{ system_info() }}` 等
 - [qa-yaml-dependencies-env.md](./qa-yaml-dependencies-env.md) — `dependencies` 怎么生成 `INS_SERVICE_<DEP>_*`
 - [volume-command.md](./volume-command.md) — `ins volume` 命令
+- [namespaces.md](./namespaces.md) — namespace 概念、命名规则、同节点冲突规则、依赖前缀 hybrid 规则

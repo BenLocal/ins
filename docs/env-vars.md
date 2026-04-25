@@ -115,6 +115,7 @@ environment:
 | `INS_APP_NAME`      | qa.yaml 里的 `name`                                            |
 | `INS_SERVICE_NAME`  | 当前部署的 service 名（通常等于 app 名）                       |
 | `INS_NODE_NAME`     | 节点名（`local` 或 remote 的 `name`）                          |
+| `INS_NAMESPACE`     | 当前部署的 namespace（默认 `default`）。在 `before.sh` / `after.sh` 与容器中可见。 |
 | `INS_VERSION`       | ins 版本                                                       |
 
 ### ③.2 每个 qa.yaml value 对应的变量
@@ -150,7 +151,14 @@ dependencies:
 - `INS_SERVICE_MYSQL_PORT=3306`
 - …（取决于 mysql 的 `values` 内容）
 
-详细规则见 [qa-yaml-dependencies-env.md](./qa-yaml-dependencies-env.md)。
+依赖 namespace 影响 env 变量名（hybrid 规则）：
+
+- 默认 namespace 的 dep（写法 `redis` 或 `:redis`）→ `INS_SERVICE_<SERVICE>_*`
+- 显式 namespace 的 dep（写法 `staging:redis`）→ `INS_SERVICE_<NS>_<SERVICE>_*`
+
+每个 dep prefix 下都会带 `_NAMESPACE` 字段，明确指出该依赖来自哪个 namespace。
+
+详细示例见 [qa-yaml-dependencies-env.md](./qa-yaml-dependencies-env.md)。
 
 ### ③.4 用户自定义的变量
 

@@ -72,7 +72,9 @@ fn build_provider_envs_includes_app_metadata_and_values() {
         &targets,
         &node,
         DEFAULT_NAMESPACE,
+        None,
         &installed,
+        &[],
         &BTreeMap::new(),
     )
     .expect("envs");
@@ -114,8 +116,8 @@ fn build_provider_envs_includes_ins_namespace_for_current_app() {
     )];
     let node = NodeRecord::Local();
 
-    let envs =
-        build_provider_envs(&targets, &node, "staging", &[], &BTreeMap::new()).expect("envs");
+    let envs = build_provider_envs(&targets, &node, "staging", None, &[], &[], &BTreeMap::new())
+        .expect("envs");
     let env = envs.get("web").expect("web env");
     assert_eq!(env.get("INS_NAMESPACE"), Some(&String::from("staging")));
 }
@@ -147,7 +149,9 @@ fn build_provider_envs_uses_unprefixed_keys_for_default_ns_dependency() {
         &targets,
         &node,
         DEFAULT_NAMESPACE,
+        None,
         &installed,
+        &[],
         &BTreeMap::new(),
     )
     .expect("envs");
@@ -197,7 +201,9 @@ fn build_provider_envs_uses_prefixed_keys_for_explicit_namespace_dependency() {
         &targets,
         &node,
         DEFAULT_NAMESPACE,
+        None,
         &installed,
+        &[],
         &BTreeMap::new(),
     )
     .expect("envs");
@@ -257,7 +263,9 @@ fn build_provider_envs_supports_dep_in_default_and_explicit_namespaces_simultane
         &targets,
         &node,
         DEFAULT_NAMESPACE,
+        None,
         &installed,
+        &[],
         &BTreeMap::new(),
     )
     .expect("envs");
@@ -269,6 +277,100 @@ fn build_provider_envs_supports_dep_in_default_and_explicit_namespaces_simultane
     assert_eq!(
         env.get("INS_SERVICE_STAGING_REDIS_PORT"),
         Some(&String::from("6380"))
+    );
+}
+
+#[test]
+fn build_provider_envs_emits_dep_ip_and_extern_ip_for_remote_node() {
+    let targets = vec![DeploymentTarget::new(
+        AppRecord {
+            name: "alpha".into(),
+            dependencies: vec!["redis".into()],
+            ..AppRecord::default()
+        },
+        "web".into(),
+    )];
+    let node = NodeRecord::Local();
+    let nodes = vec![NodeRecord::Remote(RemoteNodeRecord {
+        name: "node-a".into(),
+        ip: "10.0.0.5".into(),
+        port: 22,
+        user: "root".into(),
+        password: "secret".into(),
+        key_path: None,
+    })];
+    let installed = vec![InstalledServiceConfigRecord {
+        service: "redis".into(),
+        namespace: DEFAULT_NAMESPACE.into(),
+        app_name: "redis".into(),
+        node_name: "node-a".into(),
+        workspace: "/srv/redis".into(),
+        app_values: BTreeMap::from([("port".into(), json!(6379))])
+            .into_iter()
+            .collect(),
+        created_at_ms: 1,
+    }];
+
+    let envs = build_provider_envs(
+        &targets,
+        &node,
+        DEFAULT_NAMESPACE,
+        Some("203.0.113.5"),
+        &installed,
+        &nodes,
+        &BTreeMap::new(),
+    )
+    .expect("envs");
+    let env = envs.get("web").expect("web env");
+    assert_eq!(
+        env.get("INS_SERVICE_REDIS_IP"),
+        Some(&String::from("10.0.0.5"))
+    );
+    assert_eq!(
+        env.get("INS_SERVICE_REDIS_EXTERN_IP"),
+        Some(&String::from("10.0.0.5"))
+    );
+}
+
+#[test]
+fn build_provider_envs_emits_local_dep_ip_uses_loopback_and_extern_ip_uses_config() {
+    let targets = vec![DeploymentTarget::new(
+        AppRecord {
+            name: "alpha".into(),
+            dependencies: vec!["nacos".into()],
+            ..AppRecord::default()
+        },
+        "web".into(),
+    )];
+    let node = NodeRecord::Local();
+    let installed = vec![InstalledServiceConfigRecord {
+        service: "nacos".into(),
+        namespace: DEFAULT_NAMESPACE.into(),
+        app_name: "nacos".into(),
+        node_name: "local".into(),
+        workspace: "/srv/nacos".into(),
+        app_values: std::collections::HashMap::new(),
+        created_at_ms: 1,
+    }];
+
+    let envs = build_provider_envs(
+        &targets,
+        &node,
+        DEFAULT_NAMESPACE,
+        Some("192.168.112.2"),
+        &installed,
+        &[],
+        &BTreeMap::new(),
+    )
+    .expect("envs");
+    let env = envs.get("web").expect("web env");
+    assert_eq!(
+        env.get("INS_SERVICE_NACOS_IP"),
+        Some(&String::from("127.0.0.1"))
+    );
+    assert_eq!(
+        env.get("INS_SERVICE_NACOS_EXTERN_IP"),
+        Some(&String::from("192.168.112.2"))
     );
 }
 

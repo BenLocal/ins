@@ -190,7 +190,9 @@ pub async fn execute_pipeline_with_output(
         &prepared.targets,
         &prepared.node,
         &prepared.namespace,
+        prepared.local_extern_ip.as_deref(),
         &installed_services,
+        &nodes_for_lookup,
         &prepared.user_env,
     )?;
 

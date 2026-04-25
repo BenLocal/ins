@@ -3,15 +3,19 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 
 use crate::app::types::AppRecord;
+use crate::node::list::lookup_node_ips;
 use crate::node::types::NodeRecord;
 use crate::provider::DeploymentTarget;
 use crate::store::duck::InstalledServiceConfigRecord;
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn build_provider_envs(
     targets: &[DeploymentTarget],
     node: &NodeRecord,
     namespace: &str,
+    local_extern_ip: Option<&str>,
     installed_services: &[InstalledServiceConfigRecord],
+    nodes: &[NodeRecord],
     user_env: &BTreeMap<String, String>,
 ) -> anyhow::Result<BTreeMap<String, BTreeMap<String, String>>> {
     let mut envs = BTreeMap::new();
@@ -29,6 +33,8 @@ pub(crate) fn build_provider_envs(
         append_installed_service_envs(
             &mut target_envs,
             installed_services,
+            nodes,
+            local_extern_ip,
             &target.service,
             namespace,
             &target.app,
@@ -73,9 +79,12 @@ fn build_target_envs(
     Ok(envs)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn append_installed_service_envs(
     envs: &mut BTreeMap<String, String>,
     installed_services: &[InstalledServiceConfigRecord],
+    nodes: &[NodeRecord],
+    local_extern_ip: Option<&str>,
     current_service: &str,
     current_namespace: &str,
     app: &AppRecord,
@@ -103,10 +112,15 @@ fn append_installed_service_envs(
             format!("INS_SERVICE_{}", env_key_for_value_name(&dep.service))
         };
 
+        let (ip, extern_ip) = lookup_node_ips(&installed.node_name, nodes, local_extern_ip)
+            .unwrap_or_else(|| (installed.node_name.clone(), installed.node_name.clone()));
+
         envs.insert(format!("{prefix}_SERVICE"), installed.service.clone());
         envs.insert(format!("{prefix}_NAMESPACE"), installed.namespace.clone());
         envs.insert(format!("{prefix}_APP_NAME"), installed.app_name.clone());
         envs.insert(format!("{prefix}_NODE_NAME"), installed.node_name.clone());
+        envs.insert(format!("{prefix}_IP"), ip);
+        envs.insert(format!("{prefix}_EXTERN_IP"), extern_ip);
         envs.insert(format!("{prefix}_WORKSPACE"), installed.workspace.clone());
         envs.insert(
             format!("{prefix}_CREATED_AT_MS"),

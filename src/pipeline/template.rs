@@ -18,6 +18,8 @@ use crate::store::duck::InstalledServiceConfigRecord;
 use crate::volume::compose::resolve_target_volumes;
 use crate::volume::types::VolumeRecord;
 
+use crate::node::list::lookup_node_ips;
+
 use super::node_name;
 use super::target::resolve_app_values;
 
@@ -271,19 +273,8 @@ fn resolve_dep_node_ips(
     local_extern_ip: Option<&str>,
     output: &ExecutionOutput,
 ) -> (String, String) {
-    if node_name == "local" {
-        let ip = "127.0.0.1".to_string();
-        let extern_ip = local_extern_ip
-            .map(str::to_string)
-            .unwrap_or_else(|| "127.0.0.1".to_string());
-        return (ip, extern_ip);
-    }
-    for node in nodes {
-        if let NodeRecord::Remote(r) = node {
-            if r.name == node_name {
-                return (r.ip.clone(), r.ip.clone());
-            }
-        }
+    if let Some(pair) = lookup_node_ips(node_name, nodes, local_extern_ip) {
+        return pair;
     }
     output.line(format!(
         "warning: dep node '{node_name}' not found in nodes.json; using node_name as ip/extern_ip fallback"

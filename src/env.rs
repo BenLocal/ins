@@ -10,6 +10,7 @@ use crate::store::duck::InstalledServiceConfigRecord;
 pub(crate) fn build_provider_envs(
     targets: &[DeploymentTarget],
     node: &NodeRecord,
+    namespace: &str,
     installed_services: &[InstalledServiceConfigRecord],
     user_env: &BTreeMap<String, String>,
 ) -> anyhow::Result<BTreeMap<String, BTreeMap<String, String>>> {
@@ -21,7 +22,7 @@ pub(crate) fn build_provider_envs(
         for (k, v) in user_env {
             target_envs.insert(k.clone(), v.clone());
         }
-        let ins_envs = build_target_envs(&target.app, &target.service, node)?;
+        let ins_envs = build_target_envs(&target.app, &target.service, node, namespace)?;
         for (k, v) in ins_envs {
             target_envs.insert(k, v);
         }
@@ -29,8 +30,9 @@ pub(crate) fn build_provider_envs(
             &mut target_envs,
             installed_services,
             &target.service,
-            &target.app.dependencies,
-        );
+            namespace,
+            &target.app,
+        )?;
         envs.insert(target.service.clone(), target_envs);
     }
 
@@ -41,6 +43,7 @@ fn build_target_envs(
     app: &AppRecord,
     service: &str,
     node: &NodeRecord,
+    namespace: &str,
 ) -> anyhow::Result<BTreeMap<String, String>> {
     let resolved_values = resolve_app_values_for_env(app)?;
     let mut envs = BTreeMap::new();
@@ -48,6 +51,7 @@ fn build_target_envs(
     envs.insert("INS_APP_NAME".into(), app.name.clone());
     envs.insert("INS_SERVICE_NAME".into(), service.to_string());
     envs.insert("INS_NODE_NAME".into(), node_name(node).to_string());
+    envs.insert("INS_NAMESPACE".into(), namespace.to_string());
 
     if let Some(version) = &app.version {
         envs.insert("INS_VERSION".into(), version.clone());
@@ -73,37 +77,51 @@ fn append_installed_service_envs(
     envs: &mut BTreeMap<String, String>,
     installed_services: &[InstalledServiceConfigRecord],
     current_service: &str,
-    dependencies: &[String],
-) {
-    for service in installed_services {
-        if service.service == current_service {
-            continue;
-        }
-        if !dependencies
-            .iter()
-            .any(|dependency| dependency == &service.service)
-        {
+    current_namespace: &str,
+    app: &AppRecord,
+) -> anyhow::Result<()> {
+    for dep in app.parsed_dependencies()? {
+        // The current service never satisfies its own dependency entry.
+        if dep.service == current_service && dep.namespace == current_namespace {
             continue;
         }
 
-        let prefix = format!("INS_SERVICE_{}", env_key_for_value_name(&service.service));
-        envs.insert(format!("{prefix}_SERVICE"), service.service.clone());
-        envs.insert(format!("{prefix}_APP_NAME"), service.app_name.clone());
-        envs.insert(format!("{prefix}_NODE_NAME"), service.node_name.clone());
-        envs.insert(format!("{prefix}_WORKSPACE"), service.workspace.clone());
+        let Some(installed) = installed_services
+            .iter()
+            .find(|s| s.service == dep.service && s.namespace == dep.namespace)
+        else {
+            continue;
+        };
+
+        let prefix = if dep.explicit_namespace {
+            format!(
+                "INS_SERVICE_{}_{}",
+                env_key_for_value_name(&dep.namespace),
+                env_key_for_value_name(&dep.service)
+            )
+        } else {
+            format!("INS_SERVICE_{}", env_key_for_value_name(&dep.service))
+        };
+
+        envs.insert(format!("{prefix}_SERVICE"), installed.service.clone());
+        envs.insert(format!("{prefix}_NAMESPACE"), installed.namespace.clone());
+        envs.insert(format!("{prefix}_APP_NAME"), installed.app_name.clone());
+        envs.insert(format!("{prefix}_NODE_NAME"), installed.node_name.clone());
+        envs.insert(format!("{prefix}_WORKSPACE"), installed.workspace.clone());
         envs.insert(
             format!("{prefix}_CREATED_AT_MS"),
-            service.created_at_ms.to_string(),
+            installed.created_at_ms.to_string(),
         );
-        //envs.insert(format!("{prefix}_QA_YAML"), service.qa_yaml.clone());
 
-        for (name, value) in &service.app_values {
+        for (name, value) in &installed.app_values {
             envs.insert(
                 format!("{prefix}_{}", env_key_for_value_name(name)),
                 provider_env_value(value),
             );
         }
     }
+
+    Ok(())
 }
 
 fn resolve_app_values_for_env(app: &AppRecord) -> anyhow::Result<Vec<(String, Value)>> {

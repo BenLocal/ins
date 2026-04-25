@@ -67,7 +67,8 @@ fn build_provider_envs_includes_app_metadata_and_values() {
         },
     ];
 
-    let envs = build_provider_envs(&targets, &node, &installed, &BTreeMap::new()).expect("envs");
+    let envs = build_provider_envs(&targets, &node, "default", &installed, &BTreeMap::new())
+        .expect("envs");
     let service_env = envs.get("frontend").expect("service env");
 
     assert_eq!(
@@ -93,6 +94,157 @@ fn build_provider_envs_includes_app_metadata_and_values() {
         Some(&String::from("6379"))
     );
     assert!(!service_env.contains_key("INS_SERVICE_MYSQL_APP_NAME"));
+}
+
+#[test]
+fn build_provider_envs_includes_ins_namespace_for_current_app() {
+    let targets = vec![DeploymentTarget::new(
+        AppRecord {
+            name: "alpha".into(),
+            ..AppRecord::default()
+        },
+        "web".into(),
+    )];
+    let node = NodeRecord::Local();
+
+    let envs =
+        build_provider_envs(&targets, &node, "staging", &[], &BTreeMap::new()).expect("envs");
+    let env = envs.get("web").expect("web env");
+    assert_eq!(env.get("INS_NAMESPACE"), Some(&String::from("staging")));
+}
+
+#[test]
+fn build_provider_envs_uses_unprefixed_keys_for_default_ns_dependency() {
+    let targets = vec![DeploymentTarget::new(
+        AppRecord {
+            name: "alpha".into(),
+            dependencies: vec!["redis".into()],
+            ..AppRecord::default()
+        },
+        "web".into(),
+    )];
+    let node = NodeRecord::Local();
+    let installed = vec![InstalledServiceConfigRecord {
+        service: "redis".into(),
+        namespace: "default".into(),
+        app_name: "redis".into(),
+        node_name: "node-a".into(),
+        workspace: "/srv/redis".into(),
+        app_values: BTreeMap::from([("port".into(), json!(6379))])
+            .into_iter()
+            .collect(),
+        created_at_ms: 1,
+    }];
+
+    let envs = build_provider_envs(&targets, &node, "default", &installed, &BTreeMap::new())
+        .expect("envs");
+    let env = envs.get("web").expect("web env");
+    assert_eq!(
+        env.get("INS_SERVICE_REDIS_SERVICE"),
+        Some(&String::from("redis"))
+    );
+    assert_eq!(
+        env.get("INS_SERVICE_REDIS_NAMESPACE"),
+        Some(&String::from("default"))
+    );
+    assert_eq!(
+        env.get("INS_SERVICE_REDIS_PORT"),
+        Some(&String::from("6379"))
+    );
+    assert!(
+        !env.keys()
+            .any(|k| k.starts_with("INS_SERVICE_DEFAULT_REDIS_"))
+    );
+}
+
+#[test]
+fn build_provider_envs_uses_prefixed_keys_for_explicit_namespace_dependency() {
+    let targets = vec![DeploymentTarget::new(
+        AppRecord {
+            name: "alpha".into(),
+            dependencies: vec!["staging:redis".into()],
+            ..AppRecord::default()
+        },
+        "web".into(),
+    )];
+    let node = NodeRecord::Local();
+    let installed = vec![InstalledServiceConfigRecord {
+        service: "redis".into(),
+        namespace: "staging".into(),
+        app_name: "redis".into(),
+        node_name: "node-a".into(),
+        workspace: "/srv/redis".into(),
+        app_values: BTreeMap::from([("port".into(), json!(6380))])
+            .into_iter()
+            .collect(),
+        created_at_ms: 1,
+    }];
+
+    let envs = build_provider_envs(&targets, &node, "default", &installed, &BTreeMap::new())
+        .expect("envs");
+    let env = envs.get("web").expect("web env");
+    assert_eq!(
+        env.get("INS_SERVICE_STAGING_REDIS_SERVICE"),
+        Some(&String::from("redis"))
+    );
+    assert_eq!(
+        env.get("INS_SERVICE_STAGING_REDIS_NAMESPACE"),
+        Some(&String::from("staging"))
+    );
+    assert_eq!(
+        env.get("INS_SERVICE_STAGING_REDIS_PORT"),
+        Some(&String::from("6380"))
+    );
+    assert!(!env.keys().any(|k| k == "INS_SERVICE_REDIS_SERVICE"));
+}
+
+#[test]
+fn build_provider_envs_supports_dep_in_default_and_explicit_namespaces_simultaneously() {
+    let targets = vec![DeploymentTarget::new(
+        AppRecord {
+            name: "alpha".into(),
+            dependencies: vec!["redis".into(), "staging:redis".into()],
+            ..AppRecord::default()
+        },
+        "web".into(),
+    )];
+    let node = NodeRecord::Local();
+    let installed = vec![
+        InstalledServiceConfigRecord {
+            service: "redis".into(),
+            namespace: "default".into(),
+            app_name: "redis".into(),
+            node_name: "node-a".into(),
+            workspace: "/srv/redis".into(),
+            app_values: BTreeMap::from([("port".into(), json!(6379))])
+                .into_iter()
+                .collect(),
+            created_at_ms: 1,
+        },
+        InstalledServiceConfigRecord {
+            service: "redis".into(),
+            namespace: "staging".into(),
+            app_name: "redis".into(),
+            node_name: "node-a".into(),
+            workspace: "/srv/redis-staging".into(),
+            app_values: BTreeMap::from([("port".into(), json!(6380))])
+                .into_iter()
+                .collect(),
+            created_at_ms: 2,
+        },
+    ];
+
+    let envs = build_provider_envs(&targets, &node, "default", &installed, &BTreeMap::new())
+        .expect("envs");
+    let env = envs.get("web").expect("web env");
+    assert_eq!(
+        env.get("INS_SERVICE_REDIS_PORT"),
+        Some(&String::from("6379"))
+    );
+    assert_eq!(
+        env.get("INS_SERVICE_STAGING_REDIS_PORT"),
+        Some(&String::from("6380"))
+    );
 }
 
 #[test]

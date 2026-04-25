@@ -62,7 +62,6 @@ pub(crate) struct AppValueOption {
 }
 
 impl AppRecord {
-    #[allow(dead_code)]
     pub(crate) fn parsed_dependencies(
         &self,
     ) -> anyhow::Result<Vec<crate::app::dependency::DependencyRef>> {

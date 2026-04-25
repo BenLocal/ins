@@ -170,6 +170,7 @@ pub async fn execute_pipeline_with_output(
     let envs = build_provider_envs(
         &prepared.targets,
         &prepared.node,
+        &prepared.namespace,
         &load_installed_service_configs(home).await?,
         &prepared.user_env,
     )?;

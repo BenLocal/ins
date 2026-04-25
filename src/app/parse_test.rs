@@ -274,6 +274,99 @@ values:
     Ok(())
 }
 
+#[tokio::test]
+async fn load_app_record_does_not_expand_env_in_description_fields() -> anyhow::Result<()> {
+    // ${UNSET_VAR_FOR_TEST} sits inside metadata fields only — descriptions,
+    // author_*, and version. Loading must succeed even when the env var is
+    // unset.
+    let test_dir = unique_test_dir("parse-skip-description");
+    let qa_file = test_dir.join("qa.yaml");
+    let qa = r#"
+name: demo
+version: "${UNSET_VAR_FOR_TEST}"
+description: "Defaults to ${UNSET_VAR_FOR_TEST} from .ins/config.toml"
+author_name: "${UNSET_VAR_FOR_TEST}"
+values:
+  - name: port
+    type: number
+    description: "uses ${UNSET_VAR_FOR_TEST} when missing"
+    default: 3306
+"#;
+
+    fs::create_dir_all(&test_dir).await?;
+    fs::write(&qa_file, qa.trim_start()).await?;
+
+    let record = load_app_record(&qa_file, &no_env()).await?;
+    assert_eq!(
+        record.description.as_deref(),
+        Some("Defaults to ${UNSET_VAR_FOR_TEST} from .ins/config.toml")
+    );
+    assert_eq!(record.version.as_deref(), Some("${UNSET_VAR_FOR_TEST}"));
+    assert_eq!(record.author_name.as_deref(), Some("${UNSET_VAR_FOR_TEST}"));
+    assert_eq!(
+        record.values[0].description.as_deref(),
+        Some("uses ${UNSET_VAR_FOR_TEST} when missing")
+    );
+    assert_eq!(record.values[0].default, Some(json!(3306)));
+
+    fs::remove_dir_all(&test_dir).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn load_app_record_still_errors_on_unset_var_in_value_field() -> anyhow::Result<()> {
+    let test_dir = unique_test_dir("parse-strict-value");
+    let qa_file = test_dir.join("qa.yaml");
+    let qa = r#"
+name: demo
+values:
+  - name: registry
+    type: string
+    default: "${UNSET_REGISTRY}/base/mysql"
+"#;
+
+    fs::create_dir_all(&test_dir).await?;
+    fs::write(&qa_file, qa.trim_start()).await?;
+
+    let err = load_app_record(&qa_file, &no_env())
+        .await
+        .expect_err("unset var in default field must still fail");
+    assert!(
+        err.to_string().to_lowercase().contains("unset_registry")
+            || format!("{err:#}").contains("UNSET_REGISTRY"),
+        "error should mention the missing var: {err:#}"
+    );
+
+    fs::remove_dir_all(&test_dir).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn load_app_record_expands_env_inside_options_value() -> anyhow::Result<()> {
+    unsafe { env::set_var("INS_TEST_OPTION_VALUE", "42") };
+    let test_dir = unique_test_dir("parse-options-expand");
+    let qa_file = test_dir.join("qa.yaml");
+    let qa = r#"
+name: demo
+values:
+  - name: replicas
+    type: string
+    options:
+      - name: small
+        value: "${INS_TEST_OPTION_VALUE}"
+"#;
+
+    fs::create_dir_all(&test_dir).await?;
+    fs::write(&qa_file, qa.trim_start()).await?;
+
+    let record = load_app_record(&qa_file, &no_env()).await?;
+    assert_eq!(record.values[0].options[0].value, Some(json!("42")));
+
+    fs::remove_dir_all(&test_dir).await?;
+    unsafe { env::remove_var("INS_TEST_OPTION_VALUE") };
+    Ok(())
+}
+
 fn unique_test_dir(name: &str) -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)

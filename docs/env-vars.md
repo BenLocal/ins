@@ -4,7 +4,7 @@
 
 | 层次                        | 生效时机                          | 语法                                  | 被什么读取                                           |
 | --------------------------- | --------------------------------- | ------------------------------------- | ---------------------------------------------------- |
-| ① qa.yaml 文本替换          | 加载 `qa.yaml` 时（最早）         | `${VAR}` / `${VAR:-fb}` / `$$`        | qa.yaml 本身（被 YAML 解析前）                       |
+| ① qa.yaml 字段替换          | 加载 `qa.yaml` 时（YAML 解析后）  | `${VAR}` / `${VAR:-fb}` / `$$`        | `qa.yaml` 中**指定的数据字段**（白名单见下表）       |
 | ② Jinja 模板渲染            | 拷贝 `.j2` 文件到 workspace 时     | `{{ vars.xxx }}` / `{{ system_info()}}`| `docker-compose.yaml.j2` 等模板文件                  |
 | ③ Provider/hook 运行时 env  | `docker compose up` + hook 执行时  | shell 变量 `$INS_APP_NAME`            | 容器内进程、`before.sh` / `after.sh` 脚本            |
 
@@ -12,9 +12,22 @@
 
 ---
 
-## 层 ①：qa.yaml 文本替换
+## 层 ①：qa.yaml 字段替换
 
-`qa.yaml` 在被 YAML 解析器看到之前，会先做一次 shell 风格的变量替换。这一层是纯文本级的，所以对 qa.yaml 里的**任何字符串字段**都生效（`name`、`description`、`default`、`value`、`options[].value`、`volumes` 等）。
+`qa.yaml` 先用 YAML 解析成 `AppRecord`，然后只对**消费侧用得到的数据字段**做 shell 风格的变量替换。文档性字段（`description`、`author_*`、`name`、`version` 等）保持字面，避免一句注释里写了 `${EXAMPLE}` 就让 load 失败。
+
+**适用字段（白名单）**：
+
+| 字段                        | 类型     | 备注                                               |
+| --------------------------- | -------- | -------------------------------------------------- |
+| `values[].value`            | 任意     | 字符串递归展开（数组/对象里的字符串也会被处理）    |
+| `values[].default`          | 任意     | 同上                                               |
+| `values[].options[].value`  | 任意     | 同上                                               |
+| `volumes[]`                 | string   | 整条字符串展开                                     |
+
+**不替换的字段**（保持字面）：`name` / `version` / `description` / `author_name` / `author_email` / `order` / `dependencies[]` / `before.script` / `before.shell` / `after.script` / `after.shell` / `values[].name` / `values[].type` / `values[].description` / `values[].options[].name` / `values[].options[].description`。
+
+如果你需要在文档字段里展示 `${VAR}` 字面值，直接写就好；如果以后某些不在白名单的字段也需要替换，再扩白名单。
 
 ### 语法
 

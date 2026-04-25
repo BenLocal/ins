@@ -15,13 +15,73 @@ pub async fn load_app_record(
         .await
         .with_context(|| format!("read app file {}", qa_file.display()))?;
 
-    let expanded = expand_env_vars(&content, extra_env)
-        .with_context(|| format!("expand env vars in {}", qa_file.display()))?;
-
     let mut record: AppRecord =
-        from_str(&expanded).with_context(|| format!("parse app file {}", qa_file.display()))?;
+        from_str(&content).with_context(|| format!("parse app file {}", qa_file.display()))?;
+    expand_env_in_record(&mut record, extra_env)
+        .with_context(|| format!("expand env vars in {}", qa_file.display()))?;
     record.files = Some(load_app_files(qa_file).await?);
     Ok(record)
+}
+
+/// Expand `${VAR}` references only inside fields whose contents are
+/// consumed downstream (template rendering, env-var emission). Documentation
+/// fields (`name`, `version`, `description`, `author_*`) are left literal so
+/// a stray `${EXAMPLE}` in a description doesn't fail the load when the
+/// variable isn't set.
+///
+/// Whitelist (recursive into nested objects / arrays where the field is a
+/// JSON value, scalar otherwise):
+/// - `values[].value`
+/// - `values[].default`
+/// - `values[].options[].value`
+/// - `volumes[]`
+fn expand_env_in_record(
+    record: &mut AppRecord,
+    extra_env: &BTreeMap<String, String>,
+) -> anyhow::Result<()> {
+    for value in &mut record.values {
+        expand_env_in_optional_json(&mut value.value, extra_env)?;
+        expand_env_in_optional_json(&mut value.default, extra_env)?;
+        for option in &mut value.options {
+            expand_env_in_optional_json(&mut option.value, extra_env)?;
+        }
+    }
+    for volume in &mut record.volumes {
+        *volume = expand_env_vars(volume, extra_env)?;
+    }
+    Ok(())
+}
+
+fn expand_env_in_optional_json(
+    value: &mut Option<serde_json::Value>,
+    extra_env: &BTreeMap<String, String>,
+) -> anyhow::Result<()> {
+    if let Some(v) = value.as_mut() {
+        expand_env_in_json(v, extra_env)?;
+    }
+    Ok(())
+}
+
+fn expand_env_in_json(
+    value: &mut serde_json::Value,
+    extra_env: &BTreeMap<String, String>,
+) -> anyhow::Result<()> {
+    use serde_json::Value;
+    match value {
+        Value::String(s) => *s = expand_env_vars(s, extra_env)?,
+        Value::Array(arr) => {
+            for v in arr {
+                expand_env_in_json(v, extra_env)?;
+            }
+        }
+        Value::Object(map) => {
+            for (_k, v) in map {
+                expand_env_in_json(v, extra_env)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 /// Expand shell-style env var references inside qa.yaml content.

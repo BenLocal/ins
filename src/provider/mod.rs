@@ -24,6 +24,8 @@ impl DeploymentTarget {
 pub struct ProviderContext {
     pub provider: String,
     pub node: NodeRecord,
+    #[allow(dead_code)]
+    pub namespace: String,
     pub targets: Vec<DeploymentTarget>,
     pub workspace: PathBuf,
     pub envs: BTreeMap<String, BTreeMap<String, String>>,
@@ -32,9 +34,11 @@ pub struct ProviderContext {
 }
 
 impl ProviderContext {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         provider: String,
         node: NodeRecord,
+        namespace: String,
         targets: Vec<DeploymentTarget>,
         workspace: PathBuf,
         envs: BTreeMap<String, BTreeMap<String, String>>,
@@ -44,6 +48,7 @@ impl ProviderContext {
         Self {
             provider,
             node,
+            namespace,
             targets,
             workspace,
             envs,

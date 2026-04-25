@@ -55,6 +55,7 @@ pub async fn copy_apps_to_workspace(
         &[],
         &probe_cache,
         &output,
+        "default",
     )
     .await?;
     Ok(())
@@ -70,6 +71,7 @@ pub async fn copy_apps_to_workspace_with_output(
     volumes_config: &[VolumeRecord],
     probe_cache: &Arc<ProbeCache>,
     output: &ExecutionOutput,
+    namespace: &str,
 ) -> anyhow::Result<Vec<ResolvedVolume>> {
     output.line("Saving deployment records...");
     for target in targets {
@@ -82,7 +84,7 @@ pub async fn copy_apps_to_workspace_with_output(
             "Save deployment record for app '{}' into service '{}'",
             target.app.name, target.service
         ));
-        save_deployment_record(home, node, workspace, target, "default", &qa_yaml).await?;
+        save_deployment_record(home, node, workspace, target, namespace, &qa_yaml).await?;
     }
 
     target_file_for_node(node).create_dir_all(workspace).await?;

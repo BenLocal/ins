@@ -163,6 +163,7 @@ pub async fn execute_pipeline_with_output(
         &volumes_config,
         &probe_cache,
         &output,
+        &prepared.namespace,
     )
     .await?;
 
@@ -181,6 +182,7 @@ pub async fn execute_pipeline_with_output(
     let provider_ctx = ProviderContext::new(
         prepared.provider.clone(),
         prepared.node.clone(),
+        prepared.namespace.clone(),
         prepared.targets.clone(),
         prepared.workspace,
         envs,

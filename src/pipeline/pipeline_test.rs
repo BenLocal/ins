@@ -256,6 +256,7 @@ async fn copy_apps_to_workspace_rewrites_compose_volumes_and_returns_resolved() 
         &volumes_config,
         &probe_cache,
         &crate::execution_output::ExecutionOutput::stdout(),
+        "default",
     )
     .await?;
 

@@ -48,14 +48,14 @@ pub(crate) async fn check_namespace_conflicts(
         if existing != namespace {
             return Err(anyhow!(
                 "service '{}' already exists on node '{}' under namespace '{}'; \
-                 cannot deploy under namespace '{}'. \
-                 Run `ins service rm {}` first or redeploy under namespace '{}'.",
+                 cannot deploy under namespace '{}'. Either redeploy under namespace '{}' \
+                 or manually remove the existing record from the deploy history (\
+                 `<home>/store/deploy_history.duckdb`).",
                 target.service,
                 node_name(node),
                 existing,
                 namespace,
-                target.service,
-                existing
+                existing,
             ));
         }
     }
@@ -208,8 +208,19 @@ pub async fn prepare_installed_service_deployment(
     let stored_config = load_installed_service_configs(home)
         .await?
         .into_iter()
-        .find(|record| record.service == service.service)
-        .ok_or_else(|| anyhow!("service '{}' config not found", service.service))?;
+        .find(|record| {
+            record.service == service.service
+                && record.namespace == service.namespace
+                && record.node_name == service.node_name
+        })
+        .ok_or_else(|| {
+            anyhow!(
+                "service '{}' (namespace '{}', node '{}') config not found",
+                service.service,
+                service.namespace,
+                service.node_name
+            )
+        })?;
 
     for value in &mut app.values {
         if let Some(stored) = stored_config.app_values.get(&value.name) {

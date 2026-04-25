@@ -35,7 +35,6 @@ pub struct InstalledServiceRecord {
 #[derive(Clone, Debug)]
 pub struct InstalledServiceConfigRecord {
     pub service: String,
-    #[allow(dead_code)]
     pub namespace: String,
     pub app_name: String,
     pub node_name: String,

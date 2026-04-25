@@ -30,8 +30,9 @@ ins deploy --node prod redis                          # 不传 → default
 
 ```text
 service 'web' already exists on node 'prod' under namespace 'default'; \
-cannot deploy under namespace 'staging'. \
-Run `ins service rm web` first or redeploy under namespace 'default'.
+cannot deploy under namespace 'staging'. Either redeploy under namespace \
+'default' or manually remove the existing record from the deploy history \
+(`<home>/store/deploy_history.duckdb`).
 ```
 
 跨节点不受这个限制。

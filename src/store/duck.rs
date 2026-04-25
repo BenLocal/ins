@@ -14,6 +14,8 @@ use crate::provider::DeploymentTarget;
 #[derive(Clone, Debug)]
 pub struct StoredDeploymentRecord {
     pub service: String,
+    #[allow(dead_code)]
+    pub namespace: String,
     pub app_values: HashMap<String, Value>,
     #[allow(dead_code)]
     pub qa_yaml: String,
@@ -23,6 +25,7 @@ pub struct StoredDeploymentRecord {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct InstalledServiceRecord {
     pub service: String,
+    pub namespace: String,
     pub app_name: String,
     pub node_name: String,
     pub workspace: String,
@@ -32,6 +35,8 @@ pub struct InstalledServiceRecord {
 #[derive(Clone, Debug)]
 pub struct InstalledServiceConfigRecord {
     pub service: String,
+    #[allow(dead_code)]
+    pub namespace: String,
     pub app_name: String,
     pub node_name: String,
     pub workspace: String,
@@ -111,7 +116,7 @@ fn load_latest_deployment_record_sync(
 
     let mut stmt = conn
         .prepare(
-            "SELECT service, app_values_json, qa_yaml, created_at_ms
+            "SELECT service, COALESCE(namespace, 'default'), app_values_json, qa_yaml, created_at_ms
              FROM deployment_history
              WHERE node_name = ? AND workspace = ? AND app_name = ?
              ORDER BY created_at_ms DESC
@@ -126,15 +131,16 @@ fn load_latest_deployment_record_sync(
         return Ok(None);
     };
 
-    let app_values_json: String = row.get(1).context("read app_values_json")?;
+    let app_values_json: String = row.get(2).context("read app_values_json")?;
     let app_values: HashMap<String, Value> =
         serde_json::from_str(&app_values_json).context("parse app_values_json")?;
 
     Ok(Some(StoredDeploymentRecord {
         service: row.get(0).context("read service")?,
+        namespace: row.get(1).context("read namespace")?,
         app_values,
-        qa_yaml: row.get(2).context("read qa_yaml")?,
-        created_at_ms: row.get(3).context("read created_at_ms")?,
+        qa_yaml: row.get(3).context("read qa_yaml")?,
+        created_at_ms: row.get(4).context("read created_at_ms")?,
     }))
 }
 
@@ -151,10 +157,11 @@ fn save_deployment_record_sync(
             workspace,
             app_name,
             service,
+            namespace,
             app_values_json,
             qa_yaml,
             created_at_ms
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        ) VALUES (?, ?, ?, ?, ?, 'default', ?, ?, ?)",
         params![
             record.node_name,
             record.node_json,
@@ -176,22 +183,23 @@ fn list_installed_services_sync(db_path: &Path) -> anyhow::Result<Vec<InstalledS
 
     let mut stmt = conn
         .prepare(
-            "SELECT service, app_name, node_name, workspace, created_at_ms
+            "SELECT service, COALESCE(namespace, 'default'), app_name, node_name, workspace, created_at_ms
              FROM (
                  SELECT
                      service,
+                     COALESCE(namespace, 'default') AS namespace,
                      app_name,
                      node_name,
                      workspace,
                      created_at_ms,
                      ROW_NUMBER() OVER (
-                         PARTITION BY service
+                         PARTITION BY COALESCE(namespace, 'default'), service
                          ORDER BY created_at_ms DESC
                      ) AS row_num
                  FROM deployment_history
              )
              WHERE row_num = 1
-             ORDER BY service ASC",
+             ORDER BY namespace ASC, service ASC",
         )
         .context("prepare installed services lookup")?;
     let mut rows = stmt.query([]).context("query installed services")?;
@@ -200,10 +208,11 @@ fn list_installed_services_sync(db_path: &Path) -> anyhow::Result<Vec<InstalledS
     while let Some(row) = rows.next().context("read installed services row")? {
         services.push(InstalledServiceRecord {
             service: row.get(0).context("read service")?,
-            app_name: row.get(1).context("read app_name")?,
-            node_name: row.get(2).context("read node_name")?,
-            workspace: row.get(3).context("read workspace")?,
-            created_at_ms: row.get(4).context("read created_at_ms")?,
+            namespace: row.get(1).context("read namespace")?,
+            app_name: row.get(2).context("read app_name")?,
+            node_name: row.get(3).context("read node_name")?,
+            workspace: row.get(4).context("read workspace")?,
+            created_at_ms: row.get(5).context("read created_at_ms")?,
         });
     }
 
@@ -218,40 +227,42 @@ fn load_installed_service_configs_sync(
 
     let mut stmt = conn
         .prepare(
-            "SELECT service, app_name, node_name, workspace, app_values_json, created_at_ms
+            "SELECT service, COALESCE(namespace, 'default'), app_name, node_name, workspace, app_values_json, created_at_ms
              FROM (
                  SELECT
                      service,
+                     COALESCE(namespace, 'default') AS namespace,
                      app_name,
                      node_name,
                      workspace,
                      app_values_json,
                      created_at_ms,
                      ROW_NUMBER() OVER (
-                         PARTITION BY service
+                         PARTITION BY COALESCE(namespace, 'default'), service
                          ORDER BY created_at_ms DESC
                      ) AS row_num
                  FROM deployment_history
              )
              WHERE row_num = 1
-             ORDER BY service ASC",
+             ORDER BY namespace ASC, service ASC",
         )
         .context("prepare installed service config lookup")?;
     let mut rows = stmt.query([]).context("query installed service configs")?;
     let mut services = Vec::new();
 
     while let Some(row) = rows.next().context("read installed service config row")? {
-        let app_values_json: String = row.get(4).context("read app_values_json")?;
+        let app_values_json: String = row.get(5).context("read app_values_json")?;
         let app_values: HashMap<String, Value> =
             serde_json::from_str(&app_values_json).context("parse app_values_json")?;
 
         services.push(InstalledServiceConfigRecord {
             service: row.get(0).context("read service")?,
-            app_name: row.get(1).context("read app_name")?,
-            node_name: row.get(2).context("read node_name")?,
-            workspace: row.get(3).context("read workspace")?,
+            namespace: row.get(1).context("read namespace")?,
+            app_name: row.get(2).context("read app_name")?,
+            node_name: row.get(3).context("read node_name")?,
+            workspace: row.get(4).context("read workspace")?,
             app_values,
-            created_at_ms: row.get(5).context("read created_at_ms")?,
+            created_at_ms: row.get(6).context("read created_at_ms")?,
         });
     }
 
@@ -274,12 +285,25 @@ fn ensure_schema(conn: &Connection) -> anyhow::Result<()> {
             workspace TEXT NOT NULL,
             app_name TEXT NOT NULL,
             service TEXT NOT NULL,
+            namespace TEXT NOT NULL DEFAULT 'default',
             app_values_json TEXT NOT NULL,
             qa_yaml TEXT NOT NULL,
             created_at_ms BIGINT NOT NULL
         )",
     )
     .context("create deployment_history table")?;
+
+    // Pre-namespace installs created the table without the column. ADD COLUMN
+    // IF NOT EXISTS is a no-op on fresh schemas (column already created above)
+    // and a one-shot migration on legacy ones. DuckDB does not support NOT NULL
+    // constraints in ALTER TABLE ADD COLUMN, so we add it nullable; SELECTs
+    // use COALESCE(namespace, 'default') to normalise legacy NULLs.
+    conn.execute_batch(
+        "ALTER TABLE deployment_history \
+         ADD COLUMN IF NOT EXISTS namespace TEXT",
+    )
+    .context("alter deployment_history to add namespace column")?;
+
     Ok(())
 }
 

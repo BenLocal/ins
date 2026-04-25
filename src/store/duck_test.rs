@@ -84,6 +84,54 @@ async fn load_installed_service_configs_returns_latest_values_per_service() -> a
     Ok(())
 }
 
+#[tokio::test]
+async fn ensure_schema_alters_legacy_table_to_add_namespace() -> anyhow::Result<()> {
+    let home = unique_test_dir("duck-store-legacy-alter");
+    let db_path = home.join("store").join("deploy_history.duckdb");
+    std::fs::create_dir_all(db_path.parent().unwrap())?;
+
+    // Create a pre-namespace schema by hand and insert one legacy row.
+    {
+        let conn = duckdb::Connection::open(&db_path)?;
+        conn.execute_batch(
+            "CREATE TABLE deployment_history (
+                node_name TEXT NOT NULL,
+                node_json TEXT NOT NULL,
+                workspace TEXT NOT NULL,
+                app_name TEXT NOT NULL,
+                service TEXT NOT NULL,
+                app_values_json TEXT NOT NULL,
+                qa_yaml TEXT NOT NULL,
+                created_at_ms BIGINT NOT NULL
+            )",
+        )?;
+        conn.execute(
+            "INSERT INTO deployment_history VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            duckdb::params![
+                "local",
+                "{}",
+                "/tmp/ws",
+                "nginx",
+                "web",
+                "{}",
+                "name: nginx\n",
+                1_700_000_000_000_i64,
+            ],
+        )?;
+    }
+
+    // Touching any read path triggers ensure_schema, which must ALTER.
+    let services = list_installed_services(&home).await?;
+    assert_eq!(services.len(), 1);
+    assert_eq!(
+        services[0].namespace, "default",
+        "legacy row migrated to default namespace"
+    );
+
+    std::fs::remove_dir_all(&home)?;
+    Ok(())
+}
+
 fn unique_test_dir(name: &str) -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)

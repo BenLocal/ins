@@ -45,6 +45,7 @@ fn build_provider_envs_includes_app_metadata_and_values() {
     let installed = vec![
         InstalledServiceConfigRecord {
             service: "redis".into(),
+            namespace: "default".into(),
             app_name: "redis".into(),
             node_name: "node-b".into(),
             workspace: "/srv/redis".into(),
@@ -55,6 +56,7 @@ fn build_provider_envs_includes_app_metadata_and_values() {
         },
         InstalledServiceConfigRecord {
             service: "mysql".into(),
+            namespace: "default".into(),
             app_name: "mysql".into(),
             node_name: "node-c".into(),
             workspace: "/srv/mysql".into(),

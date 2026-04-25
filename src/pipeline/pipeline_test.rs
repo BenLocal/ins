@@ -175,6 +175,7 @@ values:
         Some("docker-compose".into()),
         &InstalledServiceRecord {
             service: "demo-web".into(),
+            namespace: "default".into(),
             app_name: "demo".into(),
             node_name: "node-a".into(),
             workspace: "/srv/demo".into(),

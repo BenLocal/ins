@@ -625,6 +625,7 @@ fn apply_stored_values_overrides_matching_app_values() {
     };
     let preset = StoredDeploymentRecord {
         service: "frontend".into(),
+        namespace: "default".into(),
         app_values: HashMap::from([(String::from("image"), json!("nginx:1.27"))]),
         qa_yaml: String::new(),
         created_at_ms: 1,
@@ -661,6 +662,7 @@ fn apply_stored_values_does_not_override_existing_cli_values() {
     };
     let preset = StoredDeploymentRecord {
         service: "frontend".into(),
+        namespace: "default".into(),
         app_values: HashMap::from([(String::from("outbound_port"), json!(3480))]),
         qa_yaml: String::new(),
         created_at_ms: 1,

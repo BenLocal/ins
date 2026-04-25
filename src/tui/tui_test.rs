@@ -476,6 +476,7 @@ fn tui_ui_renders_service_action_result_overlay() {
         PipelineMode::Deploy,
         crate::store::duck::InstalledServiceRecord {
             service: "demo-web".into(),
+            namespace: "default".into(),
             app_name: "demo".into(),
             node_name: "node-a".into(),
             workspace: "/srv/demo".into(),

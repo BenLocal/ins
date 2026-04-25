@@ -281,3 +281,30 @@ fn unique_test_dir(name: &str) -> PathBuf {
         .as_nanos();
     env::temp_dir().join(format!("ins-{name}-{}-{nanos}", std::process::id()))
 }
+
+#[tokio::test]
+async fn parsed_dependencies_splits_namespace_prefixes() {
+    use crate::app::dependency::{DEFAULT_NAMESPACE, DependencyRef};
+    use crate::app::types::AppRecord;
+
+    let app = AppRecord {
+        name: "web".into(),
+        dependencies: vec!["redis".into(), ":mysql".into(), "staging:cache".into()],
+        ..AppRecord::default()
+    };
+
+    let deps = app.parsed_dependencies().expect("parse");
+    assert_eq!(deps.len(), 3);
+    assert_eq!(
+        deps[0],
+        DependencyRef {
+            namespace: DEFAULT_NAMESPACE.into(),
+            service: "redis".into(),
+            explicit_namespace: false,
+        }
+    );
+    assert_eq!(deps[1].service, "mysql");
+    assert!(!deps[1].explicit_namespace);
+    assert_eq!(deps[2].namespace, "staging");
+    assert!(deps[2].explicit_namespace);
+}

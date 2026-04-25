@@ -61,6 +61,18 @@ pub(crate) struct AppValueOption {
     pub(crate) value: Option<Value>,
 }
 
+impl AppRecord {
+    #[allow(dead_code)]
+    pub(crate) fn parsed_dependencies(
+        &self,
+    ) -> anyhow::Result<Vec<crate::app::dependency::DependencyRef>> {
+        self.dependencies
+            .iter()
+            .map(|raw| crate::app::dependency::parse_dependency(raw))
+            .collect()
+    }
+}
+
 /// Sort apps for display. `order` ascending wins; apps without `order` come
 /// after all ordered ones; ties break alphabetically by name.
 pub(crate) fn sort_apps_for_display(apps: &mut [AppRecord]) {

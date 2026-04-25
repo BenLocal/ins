@@ -102,6 +102,11 @@ pub(crate) fn build_compose_metadata_labels(
     let mut labels = BTreeMap::new();
     labels.insert("ins.node_name".into(), node_name(node).to_string());
     insert_compose_label(&mut labels, "ins.service", template_values.get("service"));
+    insert_compose_label(
+        &mut labels,
+        "ins.namespace",
+        template_values.get("namespace"),
+    );
 
     if let Some(app) = template_values.get("app") {
         insert_compose_label(&mut labels, "ins.name", app.get("name"));

@@ -272,6 +272,74 @@ async fn copy_apps_to_workspace_rewrites_compose_volumes_and_returns_resolved() 
     Ok(())
 }
 
+#[tokio::test]
+async fn copy_apps_to_workspace_adds_metadata_labels_to_docker_compose_yml() -> anyhow::Result<()> {
+    use crate::pipeline::copy_apps_to_workspace_with_output;
+
+    let home = unique_test_dir("pipeline-labels");
+    let app_dir = home.join("app").join("label-demo");
+    fs::create_dir_all(&app_dir).await?;
+    fs::write(app_dir.join("qa.yaml"), "name: label-demo\nvalues: []\n").await?;
+    fs::write(
+        app_dir.join("docker-compose.yml"),
+        "services:\n  web:\n    image: nginx\n",
+    )
+    .await?;
+
+    let node = NodeRecord::Local();
+    let workspace = home.join("workspace");
+    let target = DeploymentTarget::new(
+        AppRecord {
+            name: "label-demo".into(),
+            version: None,
+            description: None,
+            order: None,
+            author_name: None,
+            author_email: None,
+            dependencies: vec![],
+            before: ScriptHook::default(),
+            after: ScriptHook::default(),
+            values: vec![],
+            volumes: vec![],
+            all_volume: false,
+            files: None,
+        },
+        "label-demo".into(),
+    );
+
+    let probe_cache = std::sync::Arc::new(crate::pipeline::ProbeCache::new(node.clone()));
+    copy_apps_to_workspace_with_output(
+        &home,
+        std::slice::from_ref(&target),
+        &home.join("app"),
+        &workspace,
+        &node,
+        &[],
+        &probe_cache,
+        &crate::execution_output::ExecutionOutput::stdout(),
+        "staging",
+    )
+    .await?;
+
+    let rendered =
+        fs::read_to_string(workspace.join("label-demo").join("docker-compose.yml")).await?;
+    assert!(
+        rendered.contains("ins.service:"),
+        "expected ins.service label in:\n{rendered}"
+    );
+    assert!(
+        rendered.contains("ins.namespace:"),
+        "expected ins.namespace label in:\n{rendered}"
+    );
+    assert!(
+        rendered.contains("staging"),
+        "expected namespace value 'staging' in:\n{rendered}"
+    );
+
+    fs::remove_dir_all(&home).await?;
+    Ok(())
+}
+
 fn unique_test_dir(name: &str) -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)

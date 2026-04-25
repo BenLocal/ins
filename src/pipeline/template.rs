@@ -126,11 +126,13 @@ pub fn build_template_values(app_record: &AppRecord) -> anyhow::Result<Value> {
 pub(super) fn build_target_template_values(
     target: &DeploymentTarget,
     node: &NodeRecord,
+    namespace: &str,
     volumes_config: &[VolumeRecord],
 ) -> anyhow::Result<Value> {
     let mut template_values = build_template_values(&target.app)?;
     if let Some(obj) = template_values.as_object_mut() {
         obj.insert("service".into(), Value::String(target.service.clone()));
+        obj.insert("namespace".into(), Value::String(namespace.to_string()));
         let volumes_json = resolved_volumes_to_json(&target.app, node, volumes_config)?;
         obj.insert("volumes".into(), volumes_json);
     }
@@ -140,10 +142,11 @@ pub(super) fn build_target_template_values(
 pub(super) fn print_target_template_values(
     target: &DeploymentTarget,
     node: &NodeRecord,
+    namespace: &str,
     volumes_config: &[VolumeRecord],
     output: &ExecutionOutput,
 ) -> anyhow::Result<()> {
-    let template_values = build_target_template_values(target, node, volumes_config)?;
+    let template_values = build_target_template_values(target, node, namespace, volumes_config)?;
     debug_print_template_values(&target.app.name, &template_values, output);
     Ok(())
 }
@@ -221,7 +224,7 @@ fn resolved_volumes_to_json(
 fn debug_print_template_values(app_name: &str, template_values: &Value, output: &ExecutionOutput) {
     output.line("----------------------------");
     output.line(format!("Template values for app '{app_name}':"));
-    for section in ["service", "app", "vars", "volumes"] {
+    for section in ["service", "namespace", "app", "vars", "volumes"] {
         let Some(value) = template_values.get(section) else {
             continue;
         };
@@ -300,6 +303,7 @@ pub(super) fn render_template(
             vars => template_values.get("vars").cloned().unwrap_or(Value::Null),
             volumes => template_values.get("volumes").cloned().unwrap_or(Value::Null),
             service => template_values.get("service").cloned().unwrap_or(Value::Null),
+            namespace => template_values.get("namespace").cloned().unwrap_or(Value::Null),
         })
         .map_err(|e| anyhow!("render template: {}", e))
 }

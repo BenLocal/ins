@@ -149,7 +149,13 @@ pub async fn execute_pipeline_with_output(
 
     if matches!(mode, PipelineMode::Check) {
         for target in &prepared.targets {
-            print_target_template_values(target, &prepared.node, &volumes_config, &output)?;
+            print_target_template_values(
+                target,
+                &prepared.node,
+                &prepared.namespace,
+                &volumes_config,
+                &output,
+            )?;
         }
         print_probe_catalog(&probe_cache, &output).await;
     }

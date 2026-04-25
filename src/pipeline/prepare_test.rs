@@ -1,5 +1,6 @@
-use super::absolute_workspace;
+use super::{absolute_workspace, resolve_local_extern_ip};
 use crate::app::dependency::DEFAULT_NAMESPACE;
+use crate::config::InsConfig;
 use std::path::Path;
 
 #[test]
@@ -194,4 +195,34 @@ async fn check_namespace_conflicts_passes_when_no_existing_record() -> anyhow::R
         std::fs::remove_dir_all(&home)?;
     }
     Ok(())
+}
+
+#[tokio::test]
+async fn resolve_local_extern_ip_returns_configured_value() {
+    let mut config = InsConfig::default();
+    config.defaults.local_extern_ip = Some("203.0.113.5".into());
+    let home = std::env::temp_dir().join("ins-extern-ip-configured-test");
+    let result = resolve_local_extern_ip(&home, &config)
+        .await
+        .expect("should return configured value");
+    assert_eq!(result, "203.0.113.5");
+}
+
+#[tokio::test]
+async fn resolve_local_extern_ip_errors_when_missing_in_non_tty() {
+    // cargo test runs without a TTY, so this exercises the non-TTY fail-fast path.
+    let config = InsConfig::default();
+    let home = std::env::temp_dir().join("ins-extern-ip-missing-test");
+    let err = resolve_local_extern_ip(&home, &config)
+        .await
+        .expect_err("should fail fast when no config and no TTY");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("local_extern_ip"),
+        "error should mention config key: {msg}"
+    );
+    assert!(
+        msg.contains("config.toml") || msg.contains(".toml"),
+        "error should mention config file path: {msg}"
+    );
 }

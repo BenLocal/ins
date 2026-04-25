@@ -86,20 +86,29 @@ impl ProbeCache {
     }
 }
 
-/// `{{ node }}` exposes the deploying node's name and IP. Local nodes
-/// always report `127.0.0.1`. Remote nodes use the registered IP from
-/// `nodes.json`. Other `RemoteNodeRecord` fields (port, user, password,
-/// key_path) are intentionally not exposed — password/key_path are secrets
-/// and port/user are rarely useful from inside a container.
-fn node_template_value(node: &NodeRecord) -> Value {
+/// `{{ node }}` exposes the deploying node's name, IP, and external IP.
+/// Local nodes always report `ip=127.0.0.1`; `extern_ip` is the value
+/// resolved from `[defaults] local_extern_ip` in config.toml and must be
+/// provided by the caller (panics if `None` for a local node). Remote nodes
+/// use the registered IP from `nodes.json` for both `ip` and `extern_ip`.
+/// Other `RemoteNodeRecord` fields (port, user, password, key_path) are
+/// intentionally not exposed — password/key_path are secrets and port/user
+/// are rarely useful from inside a container.
+fn node_template_value(node: &NodeRecord, local_extern_ip: Option<&str>) -> Value {
     match node {
-        NodeRecord::Local() => serde_json::json!({
-            "name": "local",
-            "ip": "127.0.0.1",
-        }),
+        NodeRecord::Local() => {
+            let extern_ip = local_extern_ip
+                .expect("local_extern_ip must be resolved before template build for local node");
+            serde_json::json!({
+                "name": "local",
+                "ip": "127.0.0.1",
+                "extern_ip": extern_ip,
+            })
+        }
         NodeRecord::Remote(remote) => serde_json::json!({
             "name": remote.name,
             "ip": remote.ip,
+            "extern_ip": remote.ip,
         }),
     }
 }
@@ -145,13 +154,14 @@ pub(super) fn build_target_template_values(
     target: &DeploymentTarget,
     node: &NodeRecord,
     namespace: &str,
+    local_extern_ip: Option<&str>,
     volumes_config: &[VolumeRecord],
 ) -> anyhow::Result<Value> {
     let mut template_values = build_template_values(&target.app)?;
     if let Some(obj) = template_values.as_object_mut() {
         obj.insert("service".into(), Value::String(target.service.clone()));
         obj.insert("namespace".into(), Value::String(namespace.to_string()));
-        obj.insert("node".into(), node_template_value(node));
+        obj.insert("node".into(), node_template_value(node, local_extern_ip));
         let volumes_json = resolved_volumes_to_json(&target.app, node, volumes_config)?;
         obj.insert("volumes".into(), volumes_json);
     }
@@ -162,10 +172,12 @@ pub(super) fn print_target_template_values(
     target: &DeploymentTarget,
     node: &NodeRecord,
     namespace: &str,
+    local_extern_ip: Option<&str>,
     volumes_config: &[VolumeRecord],
     output: &ExecutionOutput,
 ) -> anyhow::Result<()> {
-    let template_values = build_target_template_values(target, node, namespace, volumes_config)?;
+    let template_values =
+        build_target_template_values(target, node, namespace, local_extern_ip, volumes_config)?;
     debug_print_template_values(&target.app.name, &template_values, output);
     Ok(())
 }

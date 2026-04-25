@@ -258,6 +258,7 @@ async fn copy_apps_to_workspace_rewrites_compose_volumes_and_returns_resolved() 
         &probe_cache,
         &crate::execution_output::ExecutionOutput::stdout(),
         DEFAULT_NAMESPACE,
+        Some("127.0.0.1"),
     )
     .await?;
 
@@ -319,6 +320,7 @@ async fn copy_apps_to_workspace_adds_metadata_labels_to_docker_compose_yml() -> 
         &probe_cache,
         &crate::execution_output::ExecutionOutput::stdout(),
         "staging",
+        Some("127.0.0.1"),
     )
     .await?;
 

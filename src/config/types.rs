@@ -20,6 +20,11 @@ pub(crate) struct Defaults {
     pub(crate) app_home: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) provider: Option<String>,
+    /// Public-facing IP / hostname for the local node, used as
+    /// `{{ node.extern_ip }}` in templates. Required for local deploys;
+    /// prompted on first use when missing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) local_extern_ip: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub(crate) env: BTreeMap<String, String>,
 }
@@ -29,6 +34,7 @@ impl Defaults {
         self.workspace.is_none()
             && self.app_home.is_none()
             && self.provider.is_none()
+            && self.local_extern_ip.is_none()
             && self.env.is_empty()
     }
 }
@@ -88,5 +94,12 @@ impl InsConfig {
     /// having selected a target node.
     pub(crate) fn defaults_env(&self) -> &BTreeMap<String, String> {
         &self.defaults.env
+    }
+
+    /// Public-facing IP / hostname for the local node, sourced from
+    /// `[defaults] local_extern_ip` in `config.toml`. Returns `None` when
+    /// the field has never been set.
+    pub(crate) fn local_extern_ip(&self) -> Option<&str> {
+        self.defaults.local_extern_ip.as_deref()
     }
 }

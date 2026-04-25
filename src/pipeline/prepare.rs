@@ -1,14 +1,17 @@
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::anyhow;
-use inquire::Select;
+use inquire::{Select, Text};
 
 use crate::app::dependency::{DEFAULT_NAMESPACE, validate_namespace_name};
 use crate::app::parse::load_app_record;
 use crate::cli::CommandContext;
 use crate::cli::node::nodes_file;
-use crate::config::{InsConfig, persist_node_workspace_if_missing};
+use crate::config::{
+    InsConfig, config_file, persist_local_extern_ip, persist_node_workspace_if_missing,
+};
 use crate::node::list::load_all_nodes;
 use crate::node::types::NodeRecord;
 use crate::provider::DeploymentTarget;
@@ -83,6 +86,38 @@ impl PipelineContext {
     }
 }
 
+/// Resolve the public-facing IP / hostname for the local node.
+///
+/// Resolution order:
+/// 1. `[defaults] local_extern_ip` in `config.toml` — no prompt, no disk write.
+/// 2. TTY: prompt once, validate non-empty, persist to `config.toml`.
+/// 3. Non-TTY with no config value: fail fast with a clear error.
+async fn resolve_local_extern_ip(home: &Path, config: &InsConfig) -> anyhow::Result<String> {
+    if let Some(ip) = config.local_extern_ip() {
+        return Ok(ip.to_string());
+    }
+    if !std::io::stdin().is_terminal() {
+        return Err(anyhow!(
+            "local_extern_ip is not configured. \
+             Set `[defaults] local_extern_ip = \"<external IP>\"` in {}",
+            config_file(home).display()
+        ));
+    }
+    let answer = Text::new("Local node external IP (used as {{ node.extern_ip }} in templates)")
+        .with_help_message(
+            "Public IP/hostname others use to reach this machine. \
+         Saved to config.toml so you only fill this in once.",
+        )
+        .prompt()
+        .map_err(|e| anyhow!("prompt local_extern_ip: {}", e))?;
+    let trimmed = answer.trim();
+    if trimmed.is_empty() {
+        return Err(anyhow!("local_extern_ip cannot be empty"));
+    }
+    persist_local_extern_ip(home, trimmed).await?;
+    Ok(trimmed.to_string())
+}
+
 pub async fn prepare_deployment(ctx: PipelineContext) -> anyhow::Result<PreparedDeployment> {
     let PipelineContext {
         home,
@@ -121,6 +156,11 @@ pub async fn prepare_deployment(ctx: PipelineContext) -> anyhow::Result<Prepared
     let app_home = resolve_app_home(&home, &config);
     let user_env = config.env_for(&node_name_str);
 
+    let local_extern_ip = match &node {
+        NodeRecord::Local() => Some(resolve_local_extern_ip(&home, &config).await?),
+        NodeRecord::Remote(_) => None,
+    };
+
     let app_names = resolve_apps(requested_apps, &app_home).await?;
     let mut apps = load_app_records_by_names(&app_names, &app_home, &user_env).await?;
     let value_overrides = parse_cli_value_overrides(&requested_values)?;
@@ -134,6 +174,7 @@ pub async fn prepare_deployment(ctx: PipelineContext) -> anyhow::Result<Prepared
         provider,
         node,
         namespace,
+        local_extern_ip,
         app_names,
         app_home,
         workspace,
@@ -232,10 +273,16 @@ pub async fn prepare_installed_service_deployment(
     let provider = resolve_provider(provider, config, &service.node_name);
     let user_env = config.env_for(&service.node_name);
 
+    let local_extern_ip = match &node {
+        NodeRecord::Local() => Some(resolve_local_extern_ip(home, config).await?),
+        NodeRecord::Remote(_) => None,
+    };
+
     Ok(PreparedDeployment {
         provider,
         node,
         namespace: service.namespace.clone(),
+        local_extern_ip,
         app_names: vec![service.app_name.clone()],
         app_home,
         workspace: absolute_workspace(Path::new(&service.workspace))?,

@@ -70,6 +70,9 @@ pub struct PreparedDeployment {
     pub provider: String,
     pub node: NodeRecord,
     pub namespace: String,
+    /// Resolved public-facing IP / hostname for local node deploys.
+    /// `None` for remote nodes (they use `node.ip` directly).
+    pub local_extern_ip: Option<String>,
     pub app_names: Vec<String>,
     pub app_home: PathBuf,
     pub workspace: PathBuf,
@@ -153,6 +156,7 @@ pub async fn execute_pipeline_with_output(
                 target,
                 &prepared.node,
                 &prepared.namespace,
+                prepared.local_extern_ip.as_deref(),
                 &volumes_config,
                 &output,
             )?;
@@ -170,6 +174,7 @@ pub async fn execute_pipeline_with_output(
         &probe_cache,
         &output,
         &prepared.namespace,
+        prepared.local_extern_ip.as_deref(),
     )
     .await?;
 

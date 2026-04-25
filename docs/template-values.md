@@ -21,7 +21,7 @@
 | `volumes`     | `volumes:` 列表 + `ins volume` 记录合并结果  | 以卷的逻辑名为 key，返回该节点上卷的 docker 侧信息                                       |
 | `service`     | 部署目标的 service 名                        | 通常等于 app 名，可在 `ins deploy --service <name>` 时被覆盖                             |
 | `namespace`   | `--namespace` 参数（默认 `default`）          | 当前部署的 namespace 字符串，可用于在生成文件里标注归属                                  |
-| `node`        | 部署目标节点的 `NodeRecord`                   | `node.name` 和 `node.ip`，本地节点固定 `name=local` / `ip=127.0.0.1`                     |
+| `node`        | 部署目标节点的 `NodeRecord`                   | `node.name` / `node.ip` / `node.extern_ip`，本地节点固定 `name=local` / `ip=127.0.0.1`；`extern_ip` 取自 `[defaults].local_extern_ip` |
 
 ### 1.1 `app`
 
@@ -116,16 +116,21 @@ labels:
 
 部署目标节点的基本信息：
 
-| 字段        | 类型     | 备注                                              |
-| ----------- | -------- | ------------------------------------------------- |
-| `node.name` | string   | 节点名。本地节点固定为 `local`                    |
-| `node.ip`   | string   | 节点 IP。本地节点固定为 `127.0.0.1`               |
+| 字段             | 类型     | 备注                                                                                      |
+| ---------------- | -------- | ----------------------------------------------------------------------------------------- |
+| `node.name`      | string   | 节点名。本地节点固定为 `local`                                                            |
+| `node.ip`        | string   | 节点 IP。本地节点固定为 `127.0.0.1`                                                       |
+| `node.extern_ip` | string   | 节点的对外可访问 IP / 域名。本地节点取 `[defaults].local_extern_ip`；远程节点等于 `node.ip` |
 
 不暴露 `port` / `user` / `password` / `key_path`（前两个用处不大，后两个是凭证不能泄漏到模板里）。需要 `INS_NODE_NAME` 环境变量请见 [env-vars.md](./env-vars.md)。
+
+**注意**：`node.extern_ip` 在本地节点首次部署时，如果 `config.toml` 里尚未配置，会要求填写并将结果写回 `[defaults] local_extern_ip`，避免每次都问。非交互式（non-TTY）运行时若未配置，会立即报错并提示如何补充。
 
 ```jinja
 # 生成的容器镜像里写一句"我从哪个节点来的"
 LABEL ins.deployed_to_node="{{ node.name }} ({{ node.ip }})"
+# 对外公开的访问地址（本地节点取 config.toml 的 local_extern_ip）
+ENV PUBLIC_HOST="{{ node.extern_ip }}"
 ```
 
 ---

@@ -61,6 +61,12 @@ pub async fn copy_apps_to_workspace(
 ) -> anyhow::Result<()> {
     let output = ExecutionOutput::stdout();
     let probe_cache = Arc::new(ProbeCache::new(node.clone()));
+    // Tests that use LocalNode() pass a sentinel extern_ip so template rendering
+    // doesn't panic; the value is only meaningful in integration scenarios.
+    let local_extern_ip = match node {
+        NodeRecord::Local() => Some("127.0.0.1"),
+        NodeRecord::Remote(_) => None,
+    };
     let _ = copy_apps_to_workspace_with_output(
         home,
         targets,
@@ -71,6 +77,7 @@ pub async fn copy_apps_to_workspace(
         &probe_cache,
         &output,
         DEFAULT_NAMESPACE,
+        local_extern_ip,
     )
     .await?;
     Ok(())
@@ -87,6 +94,7 @@ pub async fn copy_apps_to_workspace_with_output(
     probe_cache: &Arc<ProbeCache>,
     output: &ExecutionOutput,
     namespace: &str,
+    local_extern_ip: Option<&str>,
 ) -> anyhow::Result<CopyOutcome> {
     output.line("Saving deployment records...");
     for target in targets {
@@ -112,7 +120,7 @@ pub async fn copy_apps_to_workspace_with_output(
         let source_dir = app_home.join(&target.app.name);
         let target_dir = workspace.join(&target.service);
         let template_values =
-            build_target_template_values(target, node, namespace, volumes_config)?;
+            build_target_template_values(target, node, namespace, local_extern_ip, volumes_config)?;
 
         let ctx = CopyContext {
             app: target.app.clone(),

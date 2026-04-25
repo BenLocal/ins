@@ -50,3 +50,15 @@ pub(crate) async fn persist_node_workspace_if_missing(
     entry.workspace = Some(workspace.to_string());
     save_config(home, &current).await
 }
+
+/// Persist `[defaults] local_extern_ip` to config.toml if it hasn't been set yet.
+/// Read-modify-write against the on-disk file (doesn't mutate the in-memory snapshot).
+/// No-ops when the field is already present, making it safe to call unconditionally.
+pub(crate) async fn persist_local_extern_ip(home: &Path, extern_ip: &str) -> anyhow::Result<()> {
+    let mut current = load_config(home).await?;
+    if current.defaults.local_extern_ip.is_some() {
+        return Ok(());
+    }
+    current.defaults.local_extern_ip = Some(extern_ip.to_string());
+    save_config(home, &current).await
+}

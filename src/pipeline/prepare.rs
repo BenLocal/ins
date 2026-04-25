@@ -1,17 +1,14 @@
-use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::anyhow;
-use inquire::{Select, Text};
+use inquire::Select;
 
 use crate::app::dependency::{DEFAULT_NAMESPACE, validate_namespace_name};
 use crate::app::parse::load_app_record;
 use crate::cli::CommandContext;
 use crate::cli::node::nodes_file;
-use crate::config::{
-    InsConfig, config_file, persist_local_extern_ip, persist_node_workspace_if_missing,
-};
+use crate::config::{InsConfig, config_file, persist_node_workspace_if_missing};
 use crate::node::list::load_all_nodes;
 use crate::node::types::NodeRecord;
 use crate::provider::DeploymentTarget;
@@ -86,36 +83,20 @@ impl PipelineContext {
     }
 }
 
-/// Resolve the public-facing IP / hostname for the local node.
-///
-/// Resolution order:
-/// 1. `[defaults] local_extern_ip` in `config.toml` — no prompt, no disk write.
-/// 2. TTY: prompt once, validate non-empty, persist to `config.toml`.
-/// 3. Non-TTY with no config value: fail fast with a clear error.
-async fn resolve_local_extern_ip(home: &Path, config: &InsConfig) -> anyhow::Result<String> {
+/// Read `[defaults] local_extern_ip` from `config.toml`. The local node has
+/// no other way to know its public-facing address, so when this is missing
+/// the deploy aborts with a message naming the exact key + file the user
+/// needs to edit. Remote nodes use their registered `ip` directly and never
+/// touch this resolver.
+fn resolve_local_extern_ip(home: &Path, config: &InsConfig) -> anyhow::Result<String> {
     if let Some(ip) = config.local_extern_ip() {
         return Ok(ip.to_string());
     }
-    if !std::io::stdin().is_terminal() {
-        return Err(anyhow!(
-            "local_extern_ip is not configured. \
-             Set `[defaults] local_extern_ip = \"<external IP>\"` in {}",
-            config_file(home).display()
-        ));
-    }
-    let answer = Text::new("Local node external IP (used as {{ node.extern_ip }} in templates)")
-        .with_help_message(
-            "Public IP/hostname others use to reach this machine. \
-         Saved to config.toml so you only fill this in once.",
-        )
-        .prompt()
-        .map_err(|e| anyhow!("prompt local_extern_ip: {}", e))?;
-    let trimmed = answer.trim();
-    if trimmed.is_empty() {
-        return Err(anyhow!("local_extern_ip cannot be empty"));
-    }
-    persist_local_extern_ip(home, trimmed).await?;
-    Ok(trimmed.to_string())
+    Err(anyhow!(
+        "local_extern_ip is not configured. \
+         Add `[defaults] local_extern_ip = \"<external IP>\"` to {} and re-run.",
+        config_file(home).display()
+    ))
 }
 
 pub async fn prepare_deployment(ctx: PipelineContext) -> anyhow::Result<PreparedDeployment> {
@@ -157,7 +138,7 @@ pub async fn prepare_deployment(ctx: PipelineContext) -> anyhow::Result<Prepared
     let user_env = config.env_for(&node_name_str);
 
     let local_extern_ip = match &node {
-        NodeRecord::Local() => Some(resolve_local_extern_ip(&home, &config).await?),
+        NodeRecord::Local() => Some(resolve_local_extern_ip(&home, &config)?),
         NodeRecord::Remote(_) => None,
     };
 
@@ -274,7 +255,7 @@ pub async fn prepare_installed_service_deployment(
     let user_env = config.env_for(&service.node_name);
 
     let local_extern_ip = match &node {
-        NodeRecord::Local() => Some(resolve_local_extern_ip(home, config).await?),
+        NodeRecord::Local() => Some(resolve_local_extern_ip(home, config)?),
         NodeRecord::Remote(_) => None,
     };
 

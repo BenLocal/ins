@@ -1,4 +1,4 @@
-use super::load::{load_config, persist_local_extern_ip, persist_node_workspace_if_missing};
+use super::load::{load_config, persist_node_workspace_if_missing};
 use std::env;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -168,41 +168,6 @@ async fn local_extern_ip_round_trips_through_toml() -> anyhow::Result<()> {
     assert!(
         serialized.contains("1.2.3.4"),
         "IP value missing from serialized: {serialized}"
-    );
-    tokio::fs::remove_dir_all(&home).await.ok();
-    Ok(())
-}
-
-#[tokio::test]
-async fn persist_local_extern_ip_writes_when_absent() -> anyhow::Result<()> {
-    let home = unique_home("persist-extern-ip-new");
-    tokio::fs::create_dir_all(&home).await?;
-
-    persist_local_extern_ip(&home, "5.6.7.8").await?;
-
-    let cfg = load_config(&home).await?;
-    assert_eq!(cfg.local_extern_ip(), Some("5.6.7.8"));
-    tokio::fs::remove_dir_all(&home).await.ok();
-    Ok(())
-}
-
-#[tokio::test]
-async fn persist_local_extern_ip_skips_when_already_set() -> anyhow::Result<()> {
-    let home = unique_home("persist-extern-ip-skip");
-    tokio::fs::create_dir_all(&home).await?;
-    tokio::fs::write(
-        home.join("config.toml"),
-        "[defaults]\nlocal_extern_ip = \"existing-ip\"\n",
-    )
-    .await?;
-
-    persist_local_extern_ip(&home, "new-ip").await?;
-
-    let cfg = load_config(&home).await?;
-    assert_eq!(
-        cfg.local_extern_ip(),
-        Some("existing-ip"),
-        "pre-existing value should not be overwritten"
     );
     tokio::fs::remove_dir_all(&home).await.ok();
     Ok(())

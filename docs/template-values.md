@@ -124,7 +124,7 @@ labels:
 
 不暴露 `port` / `user` / `password` / `key_path`（前两个用处不大，后两个是凭证不能泄漏到模板里）。需要 `INS_NODE_NAME` 环境变量请见 [env-vars.md](./env-vars.md)。
 
-**注意**：`node.extern_ip` 在本地节点首次部署时，如果 `config.toml` 里尚未配置，会要求填写并将结果写回 `[defaults] local_extern_ip`，避免每次都问。非交互式（non-TTY）运行时若未配置，会立即报错并提示如何补充。
+**注意**：本地节点部署时，`config.toml` 的 `[defaults] local_extern_ip` 必须事先配置；未配置会直接报错并提示在哪个文件加哪个 key。远程节点不需要这一项，`extern_ip` 自动等于 `node.ip`。
 
 ```jinja
 # 生成的容器镜像里写一句"我从哪个节点来的"

@@ -164,6 +164,7 @@ pub(super) async fn build_deployment_targets(
     home: &Path,
     node: &NodeRecord,
     workspace: &Path,
+    namespace: &str,
     use_defaults: bool,
 ) -> anyhow::Result<Vec<DeploymentTarget>> {
     let mut targets = Vec::with_capacity(apps.len());
@@ -172,7 +173,7 @@ pub(super) async fn build_deployment_targets(
         let preset = if use_defaults {
             None
         } else {
-            load_latest_deployment_record(home, node, workspace, "default", &app.name).await?
+            load_latest_deployment_record(home, node, workspace, namespace, &app.name).await?
         };
         let target = build_deployment_target(app, preset.as_ref(), use_defaults)?;
         targets.push(target);

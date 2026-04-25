@@ -48,6 +48,11 @@ pub struct PipelineArgs {
     /// Target node name.
     #[arg(short, long)]
     pub node: Option<String>,
+    /// Deployment namespace. Defaults to "default". Names must match
+    /// `[a-z0-9][a-z0-9_-]{0,63}` and may not contain whitespace or
+    /// uppercase letters.
+    #[arg(long)]
+    pub namespace: Option<String>,
     /// Override qa values. Can be specified multiple times as key=value.
     #[arg(short = 'v', long = "value", value_name = "KEY=VALUE")]
     pub values: Vec<String>,
@@ -64,6 +69,7 @@ pub struct PipelineArgs {
 pub struct PreparedDeployment {
     pub provider: String,
     pub node: NodeRecord,
+    pub namespace: String,
     pub app_names: Vec<String>,
     pub app_home: PathBuf,
     pub workspace: PathBuf,
@@ -100,6 +106,7 @@ pub fn print_prepared_deployment_to_output(
     output.line(title);
     output.line(format!("Provider Name: {}", prepared.provider));
     output.line(format!("Node Name: {}", node_name(&prepared.node)));
+    output.line(format!("Namespace: {}", prepared.namespace));
     output.line(format!("Apps: {}", prepared.app_names.join(", ")));
     output.line(format!("Workspace: {}", prepared.workspace.display()));
     output.line("Deployment Targets:");

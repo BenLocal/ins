@@ -4,6 +4,7 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use inquire::Select;
 
+use crate::app::dependency::{DEFAULT_NAMESPACE, validate_namespace_name};
 use crate::app::parse::load_app_record;
 use crate::cli::CommandContext;
 use crate::cli::node::nodes_file;
@@ -21,6 +22,15 @@ use super::{PipelineArgs, PreparedDeployment};
 use super::{node_label, node_name};
 
 const DEFAULT_PROVIDER: &str = "docker-compose";
+
+pub(crate) fn resolve_namespace(input: Option<String>) -> anyhow::Result<String> {
+    let raw = input
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| DEFAULT_NAMESPACE.to_string());
+    validate_namespace_name(&raw)?;
+    Ok(raw)
+}
 
 /// Bundle of everything `prepare_deployment` needs: shared CLI state
 /// (`home`, `config`) plus the command-specific `PipelineArgs`. Keeps the
@@ -52,11 +62,14 @@ pub async fn prepare_deployment(ctx: PipelineContext) -> anyhow::Result<Prepared
                 provider,
                 workspace,
                 node: requested_node,
+                namespace: requested_namespace,
                 values: requested_values,
                 defaults: use_defaults,
                 apps: requested_apps,
             },
     } = ctx;
+
+    let namespace = resolve_namespace(requested_namespace)?;
 
     let nodes = load_all_nodes(&nodes_file(&home)).await?;
     let node = select_node(&nodes, requested_node.as_deref())?;
@@ -82,11 +95,13 @@ pub async fn prepare_deployment(ctx: PipelineContext) -> anyhow::Result<Prepared
     let mut apps = load_app_records_by_names(&app_names, &app_home, &user_env).await?;
     let value_overrides = parse_cli_value_overrides(&requested_values)?;
     apply_cli_values(&mut apps, &value_overrides)?;
-    let targets = build_deployment_targets(apps, &home, &node, &workspace, use_defaults).await?;
+    let targets =
+        build_deployment_targets(apps, &home, &node, &workspace, &namespace, use_defaults).await?;
 
     Ok(PreparedDeployment {
         provider,
         node,
+        namespace,
         app_names,
         app_home,
         workspace,
@@ -177,6 +192,7 @@ pub async fn prepare_installed_service_deployment(
     Ok(PreparedDeployment {
         provider,
         node,
+        namespace: service.namespace.clone(),
         app_names: vec![service.app_name.clone()],
         app_home,
         workspace: absolute_workspace(Path::new(&service.workspace))?,

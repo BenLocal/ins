@@ -14,7 +14,7 @@ use crate::file::local::LocalFile;
 use crate::file::remote::RemoteFile;
 use crate::node::types::NodeRecord;
 use crate::provider::DeploymentTarget;
-use crate::store::duck::save_deployment_record;
+use crate::store::duck::{InstalledServiceConfigRecord, save_deployment_record};
 use crate::volume::compose::inject_compose_volumes;
 use crate::volume::types::{ResolvedVolume, VolumeRecord};
 
@@ -78,6 +78,8 @@ pub async fn copy_apps_to_workspace(
         &output,
         DEFAULT_NAMESPACE,
         local_extern_ip,
+        &[],
+        &[],
     )
     .await?;
     Ok(())
@@ -95,6 +97,8 @@ pub async fn copy_apps_to_workspace_with_output(
     output: &ExecutionOutput,
     namespace: &str,
     local_extern_ip: Option<&str>,
+    installed_services: &[InstalledServiceConfigRecord],
+    nodes: &[NodeRecord],
 ) -> anyhow::Result<CopyOutcome> {
     output.line("Saving deployment records...");
     for target in targets {
@@ -119,8 +123,16 @@ pub async fn copy_apps_to_workspace_with_output(
     for target in targets {
         let source_dir = app_home.join(&target.app.name);
         let target_dir = workspace.join(&target.service);
-        let template_values =
-            build_target_template_values(target, node, namespace, local_extern_ip, volumes_config)?;
+        let template_values = build_target_template_values(
+            target,
+            node,
+            namespace,
+            local_extern_ip,
+            volumes_config,
+            installed_services,
+            nodes,
+            output,
+        )?;
 
         let ctx = CopyContext {
             app: target.app.clone(),

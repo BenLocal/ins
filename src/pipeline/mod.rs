@@ -9,8 +9,10 @@ use anyhow::anyhow;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use crate::cli::node::nodes_file;
 use crate::env::build_provider_envs;
 use crate::execution_output::ExecutionOutput;
+use crate::node::list::load_all_nodes;
 use crate::node::types::NodeRecord;
 use crate::provider::docker_compose::DockerComposeProvider;
 use crate::provider::{DeploymentTarget, ProviderContext, ProviderTrait};
@@ -145,6 +147,8 @@ pub async fn execute_pipeline_with_output(
     print_prepared_deployment_to_output(title, &prepared, &output);
 
     let volumes_config = load_volumes(&volumes_file(home)).await?;
+    let installed_services = load_installed_service_configs(home).await?;
+    let nodes_for_lookup = load_all_nodes(&nodes_file(home)).await?;
 
     // One ProbeCache per deployment — shared across check-time display (if any)
     // and copy-time template rendering so each probe fires at most once.
@@ -158,6 +162,8 @@ pub async fn execute_pipeline_with_output(
                 &prepared.namespace,
                 prepared.local_extern_ip.as_deref(),
                 &volumes_config,
+                &installed_services,
+                &nodes_for_lookup,
                 &output,
             )?;
         }
@@ -175,6 +181,8 @@ pub async fn execute_pipeline_with_output(
         &output,
         &prepared.namespace,
         prepared.local_extern_ip.as_deref(),
+        &installed_services,
+        &nodes_for_lookup,
     )
     .await?;
 
@@ -182,7 +190,7 @@ pub async fn execute_pipeline_with_output(
         &prepared.targets,
         &prepared.node,
         &prepared.namespace,
-        &load_installed_service_configs(home).await?,
+        &installed_services,
         &prepared.user_env,
     )?;
 

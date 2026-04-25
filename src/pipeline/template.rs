@@ -14,6 +14,7 @@ use crate::execution_output::ExecutionOutput;
 use crate::node::info::{NodeInfoProbe, gpu::GpuProbe, system::SystemProbe};
 use crate::node::types::NodeRecord;
 use crate::provider::DeploymentTarget;
+use crate::store::duck::InstalledServiceConfigRecord;
 use crate::volume::compose::resolve_target_volumes;
 use crate::volume::types::VolumeRecord;
 
@@ -150,36 +151,144 @@ pub fn build_template_values(app_record: &AppRecord) -> anyhow::Result<Value> {
     }))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn build_target_template_values(
     target: &DeploymentTarget,
     node: &NodeRecord,
     namespace: &str,
     local_extern_ip: Option<&str>,
     volumes_config: &[VolumeRecord],
+    installed_services: &[InstalledServiceConfigRecord],
+    nodes: &[NodeRecord],
+    output: &ExecutionOutput,
 ) -> anyhow::Result<Value> {
     let mut template_values = build_template_values(&target.app)?;
     if let Some(obj) = template_values.as_object_mut() {
         obj.insert("service".into(), Value::String(target.service.clone()));
         obj.insert("namespace".into(), Value::String(namespace.to_string()));
         obj.insert("node".into(), node_template_value(node, local_extern_ip));
+        let services = build_services_template_value(
+            &target.app,
+            &target.service,
+            namespace,
+            installed_services,
+            nodes,
+            local_extern_ip,
+            output,
+        )?;
+        obj.insert("services".into(), services);
         let volumes_json = resolved_volumes_to_json(&target.app, node, volumes_config)?;
         obj.insert("volumes".into(), volumes_json);
     }
     Ok(template_values)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn print_target_template_values(
     target: &DeploymentTarget,
     node: &NodeRecord,
     namespace: &str,
     local_extern_ip: Option<&str>,
     volumes_config: &[VolumeRecord],
+    installed_services: &[InstalledServiceConfigRecord],
+    nodes: &[NodeRecord],
     output: &ExecutionOutput,
 ) -> anyhow::Result<()> {
-    let template_values =
-        build_target_template_values(target, node, namespace, local_extern_ip, volumes_config)?;
+    let template_values = build_target_template_values(
+        target,
+        node,
+        namespace,
+        local_extern_ip,
+        volumes_config,
+        installed_services,
+        nodes,
+        output,
+    )?;
     debug_print_template_values(&target.app.name, &template_values, output);
     Ok(())
+}
+
+pub(super) fn build_services_template_value(
+    app: &AppRecord,
+    current_service: &str,
+    current_namespace: &str,
+    installed_services: &[InstalledServiceConfigRecord],
+    nodes: &[NodeRecord],
+    local_extern_ip: Option<&str>,
+    output: &ExecutionOutput,
+) -> anyhow::Result<Value> {
+    let mut services_map = Map::new();
+    for dep in app.parsed_dependencies()? {
+        if dep.service == current_service && dep.namespace == current_namespace {
+            continue;
+        }
+        let Some(installed) = installed_services
+            .iter()
+            .find(|s| s.service == dep.service && s.namespace == dep.namespace)
+        else {
+            continue;
+        };
+
+        let key = if dep.explicit_namespace {
+            format!(
+                "{}_{}",
+                dep.namespace.replace('-', "_"),
+                dep.service.replace('-', "_")
+            )
+        } else {
+            dep.service.replace('-', "_")
+        };
+
+        let (ip, extern_ip) =
+            resolve_dep_node_ips(&installed.node_name, nodes, local_extern_ip, output);
+
+        let app_values: Map<String, Value> = installed
+            .app_values
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+
+        services_map.insert(
+            key,
+            serde_json::json!({
+                "service": installed.service,
+                "namespace": installed.namespace,
+                "app_name": installed.app_name,
+                "node_name": installed.node_name,
+                "workspace": installed.workspace,
+                "ip": ip,
+                "extern_ip": extern_ip,
+                "values": app_values,
+            }),
+        );
+    }
+    Ok(Value::Object(services_map))
+}
+
+fn resolve_dep_node_ips(
+    node_name: &str,
+    nodes: &[NodeRecord],
+    local_extern_ip: Option<&str>,
+    output: &ExecutionOutput,
+) -> (String, String) {
+    if node_name == "local" {
+        let ip = "127.0.0.1".to_string();
+        let extern_ip = local_extern_ip
+            .map(str::to_string)
+            .unwrap_or_else(|| "127.0.0.1".to_string());
+        return (ip, extern_ip);
+    }
+    for node in nodes {
+        if let NodeRecord::Remote(r) = node {
+            if r.name == node_name {
+                return (r.ip.clone(), r.ip.clone());
+            }
+        }
+    }
+    output.line(format!(
+        "warning: dep node '{node_name}' not found in nodes.json; using node_name as ip/extern_ip fallback"
+    ));
+    (node_name.to_string(), node_name.to_string())
 }
 
 /// Schema of the `{{ system_info() }}` / `{{ gpu_info() }}` Jinja functions.
@@ -255,7 +364,15 @@ fn resolved_volumes_to_json(
 fn debug_print_template_values(app_name: &str, template_values: &Value, output: &ExecutionOutput) {
     output.line("----------------------------");
     output.line(format!("Template values for app '{app_name}':"));
-    for section in ["service", "namespace", "node", "app", "vars", "volumes"] {
+    for section in [
+        "service",
+        "namespace",
+        "node",
+        "services",
+        "app",
+        "vars",
+        "volumes",
+    ] {
         let Some(value) = template_values.get(section) else {
             continue;
         };
@@ -336,6 +453,7 @@ pub(super) fn render_template(
             service => template_values.get("service").cloned().unwrap_or(Value::Null),
             namespace => template_values.get("namespace").cloned().unwrap_or(Value::Null),
             node => template_values.get("node").cloned().unwrap_or(Value::Null),
+            services => template_values.get("services").cloned().unwrap_or(Value::Null),
         })
         .map_err(|e| anyhow!("render template: {}", e))
 }

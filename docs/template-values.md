@@ -22,6 +22,7 @@
 | `service`     | 部署目标的 service 名                        | 通常等于 app 名，可在 `ins deploy --service <name>` 时被覆盖                             |
 | `namespace`   | `--namespace` 参数（默认 `default`）          | 当前部署的 namespace 字符串，可用于在生成文件里标注归属                                  |
 | `node`        | 部署目标节点的 `NodeRecord`                   | `node.name` / `node.ip` / `node.extern_ip`，本地节点固定 `name=local` / `ip=127.0.0.1`；`extern_ip` 取自 `[defaults].local_extern_ip` |
+| `services`    | 已安装依赖 service 列表                      | 以 `<svc>` 或 `<ns>_<svc>` 为 key（hybrid 规则匹配 env），每条带 `ip`/`extern_ip`/`node_name`/`values` 等 |
 
 ### 1.1 `app`
 
@@ -132,6 +133,47 @@ LABEL ins.deployed_to_node="{{ node.name }} ({{ node.ip }})"
 # 对外公开的访问地址（本地节点取 config.toml 的 local_extern_ip）
 ENV PUBLIC_HOST="{{ node.extern_ip }}"
 ```
+
+### 1.7 `services`
+
+当前 app 的 `qa.yaml` 中 `dependencies[]` 已声明、且目标 service **已安装**的依赖列表。key 规则与 `INS_SERVICE_<DEP>_*` 环境变量的前缀规则完全一致（hybrid namespace 规则）：
+
+- **bare 或 `:dep`**（`explicit_namespace = false`）：key = service 名，`-` 替换为 `_`
+- **`<ns>:dep`**（`explicit_namespace = true`）：key = `<ns>_<svc>`，两部分各自的 `-` 替换为 `_`
+
+例如：`mysql-main` → `services.mysql_main`；`staging:redis` → `services.staging_redis`。
+
+每条 entry 的字段：
+
+| 字段           | 类型     | 说明                                                              |
+| -------------- | -------- | ----------------------------------------------------------------- |
+| `service`      | string   | dep 的 service 名（保留原始连字符）                               |
+| `namespace`    | string   | dep 的 namespace                                                  |
+| `app_name`     | string   | dep 安装时使用的 app 名                                           |
+| `node_name`    | string   | dep 安装所在的节点名                                              |
+| `workspace`    | string   | dep 的 workspace 路径                                             |
+| `ip`           | string   | 节点内部 IP；local 节点固定 `127.0.0.1`                          |
+| `extern_ip`    | string   | 节点对外 IP；local 节点取当前运行的 `[defaults].local_extern_ip`，缺失时回退 `127.0.0.1` |
+| `values`       | object   | dep 安装时保存的 `app_values` map（key = value name，value = 解析值）|
+
+**跳过规则**：
+
+- 未安装的依赖（service 尚未 deploy 过）→ 不出现在 `services` 中，不报错
+- 自身依赖（dep.service == 当前 service 且 dep.namespace == 当前 namespace）→ 跳过，避免循环引用
+- dep 安装时使用的节点已从 `nodes.json` 删除 → `ip`/`extern_ip` 均回退为 `node_name` 字符串，并打印一行 warning
+
+用法示例：
+
+```jinja
+# 引用已安装的 redis（默认 namespace）
+REDIS_HOST="{{ services.redis.extern_ip }}"
+REDIS_PORT="{{ services.redis.values.port | default(6379) }}"
+
+# 引用 staging namespace 下的 redis
+STAGING_REDIS="{{ services.staging_redis.ip }}:6380"
+```
+
+> **注意**：`extern_ip` 对安装在 local 节点上的依赖，使用的是**当前这次 check/deploy 运行时**配置的 `local_extern_ip`，而不是 dep 安装时的值。若当前运行目标是远程节点但某个 dep 恰好装在 local，且 `local_extern_ip` 未配置，`extern_ip` 会回退 `127.0.0.1`（不会报错，因为本次 deploy 本身不需要 local_extern_ip）。
 
 ---
 

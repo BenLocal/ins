@@ -53,17 +53,26 @@ fn rejects_empty_service_after_colon() {
 
 #[test]
 fn rejects_empty_input() {
-    parse_dependency("").unwrap_err();
+    let err = parse_dependency("").unwrap_err().to_string();
+    assert!(err.contains("non-empty"), "error mentions non-empty: {err}");
 }
 
 #[test]
 fn rejects_namespace_with_uppercase() {
-    parse_dependency("Staging:redis").unwrap_err();
+    let err = parse_dependency("Staging:redis").unwrap_err().to_string();
+    assert!(
+        err.contains("Staging:redis"),
+        "error mentions raw input: {err}"
+    );
 }
 
 #[test]
 fn rejects_namespace_starting_with_dash() {
-    parse_dependency("-bad:redis").unwrap_err();
+    let err = parse_dependency("-bad:redis").unwrap_err().to_string();
+    assert!(
+        err.contains("-bad:redis"),
+        "error mentions raw input: {err}"
+    );
 }
 
 #[test]

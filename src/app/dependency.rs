@@ -63,7 +63,7 @@ pub fn validate_namespace_name(name: &str) -> Result<()> {
     if name.is_empty() {
         return Err(anyhow!("namespace name cannot be empty"));
     }
-    if name.len() > 64 {
+    if name.chars().count() > 64 {
         return Err(anyhow!(
             "namespace name '{name}' exceeds 64-character limit"
         ));

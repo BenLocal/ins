@@ -1,6 +1,7 @@
 use super::{
     dotenv_escape, format_env_file, prepare_installed_service_deployment, print_provider_envs,
 };
+use crate::app::dependency::DEFAULT_NAMESPACE;
 use crate::execution_output::ExecutionOutput;
 use crate::{
     app::types::{AppRecord, AppValue, ScriptHook},
@@ -165,7 +166,7 @@ values:
         &node,
         PathBuf::from("/srv/demo").as_path(),
         &target,
-        "default",
+        DEFAULT_NAMESPACE,
         "name: demo\nvalues: []\n",
     )
     .await?;
@@ -176,7 +177,7 @@ values:
         Some("docker-compose".into()),
         &InstalledServiceRecord {
             service: "demo-web".into(),
-            namespace: "default".into(),
+            namespace: DEFAULT_NAMESPACE.into(),
             app_name: "demo".into(),
             node_name: "node-a".into(),
             workspace: "/srv/demo".into(),
@@ -256,7 +257,7 @@ async fn copy_apps_to_workspace_rewrites_compose_volumes_and_returns_resolved() 
         &volumes_config,
         &probe_cache,
         &crate::execution_output::ExecutionOutput::stdout(),
-        "default",
+        DEFAULT_NAMESPACE,
     )
     .await?;
 

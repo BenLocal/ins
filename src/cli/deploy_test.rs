@@ -4,6 +4,7 @@ use super::{
     parse_cli_value_overrides, parse_number_value, rendered_template_name, resolve_apps,
     select_node,
 };
+use crate::app::dependency::DEFAULT_NAMESPACE;
 use crate::app::types::{AppRecord, AppValue, AppValueOption, ScriptHook};
 use crate::node::types::{NodeRecord, RemoteNodeRecord};
 use crate::provider::DeploymentTarget;
@@ -625,7 +626,7 @@ fn apply_stored_values_overrides_matching_app_values() {
     };
     let preset = StoredDeploymentRecord {
         service: "frontend".into(),
-        namespace: "default".into(),
+        namespace: DEFAULT_NAMESPACE.into(),
         app_values: HashMap::from([(String::from("image"), json!("nginx:1.27"))]),
         qa_yaml: String::new(),
         created_at_ms: 1,
@@ -662,7 +663,7 @@ fn apply_stored_values_does_not_override_existing_cli_values() {
     };
     let preset = StoredDeploymentRecord {
         service: "frontend".into(),
-        namespace: "default".into(),
+        namespace: DEFAULT_NAMESPACE.into(),
         app_values: HashMap::from([(String::from("outbound_port"), json!(3480))]),
         qa_yaml: String::new(),
         created_at_ms: 1,

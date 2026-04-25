@@ -16,6 +16,9 @@ use crate::store::duck::save_deployment_record;
 use crate::volume::compose::inject_compose_volumes;
 use crate::volume::types::{ResolvedVolume, VolumeRecord};
 
+#[cfg(test)]
+use crate::app::dependency::DEFAULT_NAMESPACE;
+
 use super::labels::{is_docker_compose_file, maybe_inject_compose_labels};
 use super::progress::{CopyAppProgress, CopyProgressSlot};
 use super::target::app_qa_file;
@@ -55,7 +58,7 @@ pub async fn copy_apps_to_workspace(
         &[],
         &probe_cache,
         &output,
-        "default",
+        DEFAULT_NAMESPACE,
     )
     .await?;
     Ok(())

@@ -1,4 +1,5 @@
 use super::{build_provider_envs, shell_exports};
+use crate::app::dependency::DEFAULT_NAMESPACE;
 use crate::app::types::{AppRecord, AppValue, ScriptHook};
 use crate::node::types::{NodeRecord, RemoteNodeRecord};
 use crate::provider::DeploymentTarget;
@@ -45,7 +46,7 @@ fn build_provider_envs_includes_app_metadata_and_values() {
     let installed = vec![
         InstalledServiceConfigRecord {
             service: "redis".into(),
-            namespace: "default".into(),
+            namespace: DEFAULT_NAMESPACE.into(),
             app_name: "redis".into(),
             node_name: "node-b".into(),
             workspace: "/srv/redis".into(),
@@ -56,7 +57,7 @@ fn build_provider_envs_includes_app_metadata_and_values() {
         },
         InstalledServiceConfigRecord {
             service: "mysql".into(),
-            namespace: "default".into(),
+            namespace: DEFAULT_NAMESPACE.into(),
             app_name: "mysql".into(),
             node_name: "node-c".into(),
             workspace: "/srv/mysql".into(),
@@ -67,8 +68,14 @@ fn build_provider_envs_includes_app_metadata_and_values() {
         },
     ];
 
-    let envs = build_provider_envs(&targets, &node, "default", &installed, &BTreeMap::new())
-        .expect("envs");
+    let envs = build_provider_envs(
+        &targets,
+        &node,
+        DEFAULT_NAMESPACE,
+        &installed,
+        &BTreeMap::new(),
+    )
+    .expect("envs");
     let service_env = envs.get("frontend").expect("service env");
 
     assert_eq!(
@@ -126,7 +133,7 @@ fn build_provider_envs_uses_unprefixed_keys_for_default_ns_dependency() {
     let node = NodeRecord::Local();
     let installed = vec![InstalledServiceConfigRecord {
         service: "redis".into(),
-        namespace: "default".into(),
+        namespace: DEFAULT_NAMESPACE.into(),
         app_name: "redis".into(),
         node_name: "node-a".into(),
         workspace: "/srv/redis".into(),
@@ -136,8 +143,14 @@ fn build_provider_envs_uses_unprefixed_keys_for_default_ns_dependency() {
         created_at_ms: 1,
     }];
 
-    let envs = build_provider_envs(&targets, &node, "default", &installed, &BTreeMap::new())
-        .expect("envs");
+    let envs = build_provider_envs(
+        &targets,
+        &node,
+        DEFAULT_NAMESPACE,
+        &installed,
+        &BTreeMap::new(),
+    )
+    .expect("envs");
     let env = envs.get("web").expect("web env");
     assert_eq!(
         env.get("INS_SERVICE_REDIS_SERVICE"),
@@ -145,7 +158,7 @@ fn build_provider_envs_uses_unprefixed_keys_for_default_ns_dependency() {
     );
     assert_eq!(
         env.get("INS_SERVICE_REDIS_NAMESPACE"),
-        Some(&String::from("default"))
+        Some(&String::from(DEFAULT_NAMESPACE))
     );
     assert_eq!(
         env.get("INS_SERVICE_REDIS_PORT"),
@@ -180,8 +193,14 @@ fn build_provider_envs_uses_prefixed_keys_for_explicit_namespace_dependency() {
         created_at_ms: 1,
     }];
 
-    let envs = build_provider_envs(&targets, &node, "default", &installed, &BTreeMap::new())
-        .expect("envs");
+    let envs = build_provider_envs(
+        &targets,
+        &node,
+        DEFAULT_NAMESPACE,
+        &installed,
+        &BTreeMap::new(),
+    )
+    .expect("envs");
     let env = envs.get("web").expect("web env");
     assert_eq!(
         env.get("INS_SERVICE_STAGING_REDIS_SERVICE"),
@@ -212,7 +231,7 @@ fn build_provider_envs_supports_dep_in_default_and_explicit_namespaces_simultane
     let installed = vec![
         InstalledServiceConfigRecord {
             service: "redis".into(),
-            namespace: "default".into(),
+            namespace: DEFAULT_NAMESPACE.into(),
             app_name: "redis".into(),
             node_name: "node-a".into(),
             workspace: "/srv/redis".into(),
@@ -234,8 +253,14 @@ fn build_provider_envs_supports_dep_in_default_and_explicit_namespaces_simultane
         },
     ];
 
-    let envs = build_provider_envs(&targets, &node, "default", &installed, &BTreeMap::new())
-        .expect("envs");
+    let envs = build_provider_envs(
+        &targets,
+        &node,
+        DEFAULT_NAMESPACE,
+        &installed,
+        &BTreeMap::new(),
+    )
+    .expect("envs");
     let env = envs.get("web").expect("web env");
     assert_eq!(
         env.get("INS_SERVICE_REDIS_PORT"),

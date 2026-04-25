@@ -77,7 +77,7 @@ async fn check_namespace_conflicts_errors_when_service_uses_other_namespace() ->
         &node,
         &workspace,
         &existing,
-        "default",
+        DEFAULT_NAMESPACE,
         "name: nginx\n",
     )
     .await?;
@@ -138,7 +138,7 @@ async fn check_namespace_conflicts_passes_when_same_namespace() -> anyhow::Resul
         &node,
         &workspace,
         &existing,
-        "default",
+        DEFAULT_NAMESPACE,
         "name: nginx\n",
     )
     .await?;
@@ -151,7 +151,7 @@ async fn check_namespace_conflicts_passes_when_same_namespace() -> anyhow::Resul
         "web".into(),
     );
 
-    super::check_namespace_conflicts(&home, &node, "default", &[new_target])
+    super::check_namespace_conflicts(&home, &node, DEFAULT_NAMESPACE, &[new_target])
         .await
         .expect("same-namespace redeploy must pass");
 

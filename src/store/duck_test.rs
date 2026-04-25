@@ -3,6 +3,7 @@ use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::*;
+use crate::app::dependency::DEFAULT_NAMESPACE;
 use crate::app::types::{AppValue, ScriptHook};
 use crate::provider::DeploymentTarget;
 use serde_json::json;
@@ -15,24 +16,33 @@ async fn save_and_load_latest_deployment_record_round_trips() -> anyhow::Result<
     let first = DeploymentTarget::new(app_record("nginx", json!("nginx:1.0")), "web".into());
     let second = DeploymentTarget::new(app_record("nginx", json!("nginx:1.1")), "frontend".into());
 
-    save_deployment_record(&home, &node, &workspace, &first, "default", "name: nginx\n").await?;
+    save_deployment_record(
+        &home,
+        &node,
+        &workspace,
+        &first,
+        DEFAULT_NAMESPACE,
+        "name: nginx\n",
+    )
+    .await?;
     tokio::time::sleep(Duration::from_millis(2)).await;
     save_deployment_record(
         &home,
         &node,
         &workspace,
         &second,
-        "default",
+        DEFAULT_NAMESPACE,
         "name: nginx\n",
     )
     .await?;
 
-    let loaded = load_latest_deployment_record(&home, &node, &workspace, "default", "nginx")
-        .await?
-        .expect("stored deployment record");
+    let loaded =
+        load_latest_deployment_record(&home, &node, &workspace, DEFAULT_NAMESPACE, "nginx")
+            .await?
+            .expect("stored deployment record");
 
     assert_eq!(loaded.service, "frontend");
-    assert_eq!(loaded.namespace, "default");
+    assert_eq!(loaded.namespace, DEFAULT_NAMESPACE);
     assert_eq!(loaded.app_values.get("image"), Some(&json!("nginx:1.1")));
     assert_eq!(loaded.qa_yaml, "name: nginx\n");
 
@@ -54,14 +64,30 @@ async fn list_installed_services_keeps_latest_record_per_service() -> anyhow::Re
         &node,
         &workspace,
         &original,
-        "default",
+        DEFAULT_NAMESPACE,
         "name: nginx\n",
     )
     .await?;
     tokio::time::sleep(Duration::from_millis(2)).await;
-    save_deployment_record(&home, &node, &workspace, &newer, "default", "name: caddy\n").await?;
+    save_deployment_record(
+        &home,
+        &node,
+        &workspace,
+        &newer,
+        DEFAULT_NAMESPACE,
+        "name: caddy\n",
+    )
+    .await?;
     tokio::time::sleep(Duration::from_millis(2)).await;
-    save_deployment_record(&home, &node, &workspace, &other, "default", "name: redis\n").await?;
+    save_deployment_record(
+        &home,
+        &node,
+        &workspace,
+        &other,
+        DEFAULT_NAMESPACE,
+        "name: redis\n",
+    )
+    .await?;
 
     let services = list_installed_services(&home).await?;
 
@@ -88,12 +114,20 @@ async fn load_installed_service_configs_returns_latest_values_per_service() -> a
         &node,
         &workspace,
         &original,
-        "default",
+        DEFAULT_NAMESPACE,
         "name: nginx\n",
     )
     .await?;
     tokio::time::sleep(Duration::from_millis(2)).await;
-    save_deployment_record(&home, &node, &workspace, &newer, "default", "name: caddy\n").await?;
+    save_deployment_record(
+        &home,
+        &node,
+        &workspace,
+        &newer,
+        DEFAULT_NAMESPACE,
+        "name: caddy\n",
+    )
+    .await?;
 
     let services = load_installed_service_configs(&home).await?;
 
@@ -149,7 +183,7 @@ async fn ensure_schema_alters_legacy_table_to_add_namespace() -> anyhow::Result<
     let services = list_installed_services(&home).await?;
     assert_eq!(services.len(), 1);
     assert_eq!(
-        services[0].namespace, "default",
+        services[0].namespace, DEFAULT_NAMESPACE,
         "legacy row migrated to default namespace"
     );
 
@@ -175,7 +209,8 @@ async fn save_and_load_respects_namespace_partition() -> anyhow::Result<()> {
     .await?;
 
     // Same app_name, different namespace — must miss.
-    let miss = load_latest_deployment_record(&home, &node, &workspace, "default", "nginx").await?;
+    let miss =
+        load_latest_deployment_record(&home, &node, &workspace, DEFAULT_NAMESPACE, "nginx").await?;
     assert!(miss.is_none(), "default namespace must not see staging row");
 
     let hit = load_latest_deployment_record(&home, &node, &workspace, "staging", "nginx")

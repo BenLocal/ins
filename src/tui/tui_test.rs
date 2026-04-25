@@ -8,6 +8,7 @@ use ratatui::{Terminal, backend::TestBackend};
 use tokio::fs;
 
 use crate::{
+    app::dependency::DEFAULT_NAMESPACE,
     app::types::{AppRecord, ScriptHook},
     node::types::{NodeRecord, RemoteNodeRecord},
     pipeline::PipelineMode,
@@ -66,7 +67,7 @@ values: []
             },
             "demo-web".into(),
         ),
-        "default",
+        DEFAULT_NAMESPACE,
         "name: demo\nvalues: []\n",
     )
     .await?;
@@ -143,7 +144,7 @@ values: []
             },
             "demo-web".into(),
         ),
-        "default",
+        DEFAULT_NAMESPACE,
         "name: demo\nvalues: []\n",
     )
     .await?;
@@ -478,7 +479,7 @@ fn tui_ui_renders_service_action_result_overlay() {
         PipelineMode::Deploy,
         crate::store::duck::InstalledServiceRecord {
             service: "demo-web".into(),
-            namespace: "default".into(),
+            namespace: DEFAULT_NAMESPACE.into(),
             app_name: "demo".into(),
             node_name: "node-a".into(),
             workspace: "/srv/demo".into(),

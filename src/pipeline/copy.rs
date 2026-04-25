@@ -423,6 +423,13 @@ async fn collect_copy_jobs(source: &Path, target: &Path) -> anyhow::Result<Vec<C
             }
 
             let file_name = file_name.to_string_lossy().to_string();
+            // qa.yaml is the app manifest; the deployer reads it directly
+            // from app_home and saves a copy into deploy_history. Copying it
+            // into the workspace would just leave a stale duplicate next to
+            // the rendered docker-compose.
+            if file_name == "qa.yaml" {
+                continue;
+            }
             let target_path = if is_template_file(&file_name) {
                 current_target.join(rendered_template_name(&file_name))
             } else {

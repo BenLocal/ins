@@ -122,7 +122,8 @@ async fn copy_apps_to_workspace_copies_app_files() -> anyhow::Result<()> {
 
     let targets = vec![DeploymentTarget::new(app_record("alpha"), "alpha".into())];
     copy_apps_to_workspace(&home, &targets, &app_home, &workspace, &NodeRecord::Local()).await?;
-    assert!(fs::try_exists(workspace.join("alpha").join("qa.yaml")).await?);
+    // qa.yaml is the manifest; intentionally NOT copied into the workspace.
+    assert!(!fs::try_exists(workspace.join("alpha").join("qa.yaml")).await?);
     assert!(fs::try_exists(workspace.join("alpha").join("README.md")).await?);
     assert!(fs::try_exists(workspace.join("alpha").join("scripts").join("run.sh")).await?);
 

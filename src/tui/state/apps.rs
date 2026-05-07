@@ -344,21 +344,13 @@ impl TuiState {
         is_dir: bool,
     ) -> anyhow::Result<()> {
         let relative_path = validate_relative_path(&relative_path)?;
-        let absolute_path = self.app_file_absolute_path(app_name, &relative_path);
-        if is_dir {
-            fs::create_dir_all(&absolute_path)
-                .await
-                .with_context(|| format!("create app directory {}", absolute_path.display()))?;
+        let kind = if is_dir {
+            crate::app::files::FileKind::Directory
         } else {
-            if let Some(parent) = absolute_path.parent() {
-                fs::create_dir_all(parent)
-                    .await
-                    .with_context(|| format!("create app parent {}", parent.display()))?;
-            }
-            fs::write(&absolute_path, "")
-                .await
-                .with_context(|| format!("create app file {}", absolute_path.display()))?;
-        }
+            crate::app::files::FileKind::Text
+        };
+        let app_dir = self.home.join("app").join(app_name);
+        crate::app::files::create_file(&app_dir, &relative_path, kind).await?;
         self.reload_apps().await?;
         self.reopen_app_file_manager(app_name, Some(&relative_path))
             .await?;
@@ -378,10 +370,8 @@ impl TuiState {
         content: String,
     ) -> anyhow::Result<()> {
         let relative_path = validate_relative_path(&relative_path)?;
-        let absolute_path = self.app_file_absolute_path(app_name, &relative_path);
-        fs::write(&absolute_path, content)
-            .await
-            .with_context(|| format!("write app file {}", absolute_path.display()))?;
+        let app_dir = self.home.join("app").join(app_name);
+        crate::app::files::write_file(&app_dir, &relative_path, &content).await?;
         self.reload_apps().await?;
         self.reopen_app_file_manager(app_name, Some(&relative_path))
             .await?;
@@ -396,19 +386,8 @@ impl TuiState {
         relative_path: &str,
     ) -> anyhow::Result<()> {
         let relative_path = validate_relative_path(relative_path)?;
-        let absolute_path = self.app_file_absolute_path(app_name, &relative_path);
-        let metadata = fs::metadata(&absolute_path)
-            .await
-            .with_context(|| format!("read app file metadata {}", absolute_path.display()))?;
-        if metadata.is_dir() {
-            fs::remove_dir_all(&absolute_path)
-                .await
-                .with_context(|| format!("remove app directory {}", absolute_path.display()))?;
-        } else {
-            fs::remove_file(&absolute_path)
-                .await
-                .with_context(|| format!("remove app file {}", absolute_path.display()))?;
-        }
+        let app_dir = self.home.join("app").join(app_name);
+        crate::app::files::delete_file(&app_dir, &relative_path).await?;
         self.reload_apps().await?;
         self.reopen_app_file_manager(app_name, None).await?;
         self.overlay = None;

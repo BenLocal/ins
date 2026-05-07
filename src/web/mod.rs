@@ -22,7 +22,6 @@ use crate::web::state::AppState;
 
 pub struct WebOptions {
     pub bind: SocketAddr,
-    #[allow(dead_code)] // consumed in later tasks
     pub no_open: bool,
     pub token: Option<String>,
 }
@@ -71,6 +70,8 @@ pub(crate) fn build_router(state: AppState) -> Router {
 
 pub async fn run(home: PathBuf, config: Arc<InsConfig>, options: WebOptions) -> anyhow::Result<()> {
     let token_str = options.token.clone().unwrap_or_else(|| "none".to_string());
+    let token_for_open = options.token.clone();
+    let no_open = options.no_open;
     let state = AppState {
         home: Arc::new(home),
         config,
@@ -84,12 +85,32 @@ pub async fn run(home: PathBuf, config: Arc<InsConfig>, options: WebOptions) -> 
         .with_context(|| format!("bind {}", options.bind))?;
     let actual = listener.local_addr()?;
     println!("Listening on http://{actual}/  (token: {token_str})");
+    if !no_open && actual.ip().is_loopback() {
+        let url = match &token_for_open {
+            Some(t) => format!("http://{actual}/?token={t}"),
+            None => format!("http://{actual}/"),
+        };
+        if let Err(err) = open_browser(&url) {
+            eprintln!("Could not open browser: {err}");
+        }
+    }
     axum::serve(listener, app)
         .with_graceful_shutdown(async {
             let _ = tokio::signal::ctrl_c().await;
         })
         .await
         .context("axum serve")
+}
+
+fn open_browser(url: &str) -> std::io::Result<()> {
+    use std::process::Command;
+    #[cfg(target_os = "macos")]
+    let opener = "open";
+    #[cfg(target_os = "linux")]
+    let opener = "xdg-open";
+    #[cfg(target_os = "windows")]
+    let opener = "explorer";
+    Command::new(opener).arg(url).spawn().map(|_| ())
 }
 
 #[cfg(test)]

@@ -7,10 +7,11 @@ use anyhow::Context;
 pub use apps::{
     AppCreateField, AppCreateFormState, AppCreateKind, AppTextEditorState, AppViewState,
 };
+pub use nodes::node_detail;
 pub use nodes::{NodeFormField, NodeFormInput, NodeFormMode, NodeFormState};
 
 use apps::{app_file_label, app_label, load_app_details};
-use nodes::{node_detail, node_label};
+use nodes::node_label;
 use services::{service_detail, service_label};
 
 use crate::pipeline::PipelineMode;

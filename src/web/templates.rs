@@ -6,6 +6,12 @@ const SOURCES: &[(&str, &str)] = &[
     ("layout.html", include_str!("templates/layout.html")),
     ("index.html", include_str!("templates/index.html")),
     ("error.html", include_str!("templates/error.html")),
+    ("nodes/list.html", include_str!("templates/nodes/list.html")),
+    ("nodes/form.html", include_str!("templates/nodes/form.html")),
+    (
+        "nodes/detail.html",
+        include_str!("templates/nodes/detail.html"),
+    ),
 ];
 
 pub fn build() -> Arc<Environment<'static>> {

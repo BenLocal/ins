@@ -1,6 +1,7 @@
 pub mod assets;
 pub mod auth;
 pub mod error;
+pub mod handlers;
 pub mod jobs;
 pub mod state;
 pub mod templates;
@@ -10,9 +11,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Context;
-use axum::extract::State;
-use axum::response::Html;
-use axum::{Router, routing::get};
+use axum::{
+    Router,
+    routing::{get, post},
+};
 use tokio::net::TcpListener;
 
 use crate::config::InsConfig;
@@ -36,7 +38,18 @@ pub async fn run(home: PathBuf, config: Arc<InsConfig>, options: WebOptions) -> 
     };
 
     let app = Router::new()
-        .route("/", get(render_index))
+        .route("/", get(handlers::index::render))
+        .route(
+            "/nodes",
+            get(handlers::nodes::list).post(handlers::nodes::create),
+        )
+        .route("/nodes/new", get(handlers::nodes::new_form))
+        .route(
+            "/nodes/:name",
+            get(handlers::nodes::detail).post(handlers::nodes::update),
+        )
+        .route("/nodes/:name/edit", get(handlers::nodes::edit_form))
+        .route("/nodes/:name/delete", post(handlers::nodes::delete))
         .route("/static/htmx.min.js", get(assets::htmx))
         .route("/static/htmx-sse.js", get(assets::htmx_sse))
         .route("/static/style.css", get(assets::style))
@@ -57,9 +70,4 @@ pub async fn run(home: PathBuf, config: Arc<InsConfig>, options: WebOptions) -> 
         })
         .await
         .context("axum serve")
-}
-
-async fn render_index(State(s): State<AppState>) -> Html<String> {
-    let tmpl = s.templates.get_template("index.html").expect("template");
-    Html(tmpl.render(()).expect("render"))
 }

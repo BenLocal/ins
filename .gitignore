@@ -31,3 +31,11 @@ target
 /.ins/nodes.json
 /.ins/volumes.json
 /.ins/config.toml
+
+# Screenshots / image artifacts (e.g. playwright test captures)
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+.playwright-mcp/

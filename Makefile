@@ -35,8 +35,8 @@ check: fmt-check clippy test ## Full CI gate: fmt + clippy + test
 run: ## Run the CLI: make run ARGS="volume list"
 	$(CARGO) run $(FEATURES) -- $(ARGS)
 
-install: ## Install the built binary into ~/.cargo/bin
-	$(CARGO) install --path . $(FEATURES)
+install: ## Install the built binary into ~/.cargo/bin (honors Cargo.lock)
+	$(CARGO) install --path . --locked $(FEATURES)
 
 clean: ## cargo clean
 	$(CARGO) clean

@@ -1,16 +1,20 @@
 pub mod error;
 pub mod jobs;
 pub mod state;
+pub mod templates;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Context;
-use axum::{Router, response::Html, routing::get};
+use axum::extract::State;
+use axum::response::Html;
+use axum::{Router, routing::get};
 use tokio::net::TcpListener;
 
 use crate::config::InsConfig;
+use crate::web::state::AppState;
 
 pub struct WebOptions {
     pub bind: SocketAddr,
@@ -20,13 +24,23 @@ pub struct WebOptions {
 }
 
 pub async fn run(home: PathBuf, config: Arc<InsConfig>, options: WebOptions) -> anyhow::Result<()> {
-    let _ = (home, config); // wired up in later tasks
-    let app = Router::new().route("/", get(|| async { Html("<h1>ins web</h1>") }));
+    let token_str = options.token.clone().unwrap_or_else(|| "none".to_string());
+    let state = AppState {
+        home: Arc::new(home),
+        config,
+        jobs: Arc::new(crate::web::jobs::JobRegistry::default()),
+        token: options.token.map(Arc::new),
+        templates: crate::web::templates::build(),
+    };
+
+    let app = Router::new()
+        .route("/", get(render_index))
+        .with_state(state);
+
     let listener = TcpListener::bind(options.bind)
         .await
         .with_context(|| format!("bind {}", options.bind))?;
     let actual = listener.local_addr()?;
-    let token_str = options.token.as_deref().unwrap_or("none");
     println!("Listening on http://{actual}/  (token: {token_str})");
     axum::serve(listener, app)
         .with_graceful_shutdown(async {
@@ -34,4 +48,9 @@ pub async fn run(home: PathBuf, config: Arc<InsConfig>, options: WebOptions) -> 
         })
         .await
         .context("axum serve")
+}
+
+async fn render_index(State(s): State<AppState>) -> Html<String> {
+    let tmpl = s.templates.get_template("index.html").expect("template");
+    Html(tmpl.render(()).expect("render"))
 }

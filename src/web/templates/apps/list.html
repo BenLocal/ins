@@ -1,5 +1,5 @@
 <div id="apps-pane" class="pane" hx-target="this" hx-swap="outerHTML">
-  <h2>Apps</h2>
+  <header><h2>Apps</h2></header>
   <ul>
     {% for app in apps %}
       <li><a hx-get="/apps/{{ app.name }}" hx-target="#apps-pane" hx-swap="outerHTML">{{ app.name }}</a></li>

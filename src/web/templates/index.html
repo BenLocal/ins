@@ -1,6 +1,15 @@
 {% extends "layout.html" %}
 {% block content %}
-<header><h1>ins</h1></header>
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-name">ins</span><span class="brand-prompt">$</span><span class="brand-cmd">web</span><span class="brand-cursor"></span>
+  </div>
+  <div class="meta">
+    <span>NODES <b>·</b></span>
+    <span>APPS <b>·</b></span>
+    <span>SERVICES</span>
+  </div>
+</header>
 <section class="grid three-col">
   <div id="nodes-pane" hx-get="/nodes" hx-trigger="load" hx-swap="outerHTML"></div>
   <div id="apps-pane" hx-get="/apps" hx-trigger="load" hx-swap="outerHTML"></div>

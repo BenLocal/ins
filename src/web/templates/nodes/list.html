@@ -1,7 +1,7 @@
 <div id="nodes-pane" class="pane" hx-target="this" hx-swap="outerHTML">
-  <header style="display:flex; justify-content:space-between; align-items:center;">
+  <header>
     <h2>Nodes</h2>
-    <button hx-get="/nodes/new" hx-target="#modal" hx-swap="innerHTML">+ Add</button>
+    <button hx-get="/nodes/new" hx-target="#modal" hx-swap="innerHTML">+ add</button>
   </header>
   <ul>
     {% for n in nodes %}

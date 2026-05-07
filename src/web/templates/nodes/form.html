@@ -1,5 +1,5 @@
 <form hx-post="{{ action }}" hx-target="#nodes-pane" hx-swap="outerHTML"
-      hx-on::after-request="document.getElementById('modal').replaceChildren()">
+      hx-on:htmx:after-request="document.getElementById('modal').replaceChildren()">
   <h3>{{ title }}</h3>
   <label>Name <input name="name" value="{{ name | default('') }}" {% if mode == 'edit' %}readonly{% endif %} required></label>
   <label>IP <input name="ip" value="{{ ip | default('') }}" required></label>
@@ -7,9 +7,9 @@
   <label>User <input name="user" value="{{ user | default('') }}" required></label>
   <label>Password <input name="password" type="password" value=""></label>
   <label>Key path <input name="key_path" value="{{ key_path | default('') }}"></label>
-  <div style="display:flex; gap:0.5rem;">
+  <div class="form-actions">
     <button type="submit">{{ submit_label }}</button>
     <button type="button"
-            hx-on::click="document.getElementById('modal').replaceChildren()">Cancel</button>
+            hx-on:click="document.getElementById('modal').replaceChildren()">cancel</button>
   </div>
 </form>

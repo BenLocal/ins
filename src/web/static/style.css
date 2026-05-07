@@ -1,27 +1,593 @@
+/* =========================================================================
+   ins web — brutalist terminal
+   palette: near-black canvas, warm off-white text, single amber accent,
+            sage success, muted danger.
+   type:    IBM Plex Mono (300/400/500/700) throughout.
+   ========================================================================= */
+
 :root {
-  --bg: #0e1116;
-  --panel: #161b22;
-  --fg: #e6edf3;
-  --muted: #8b949e;
-  --accent: #58a6ff;
-  --danger: #f85149;
+  --bg-0:        #0a0a0a;   /* page */
+  --bg-1:        #0d0d0d;   /* drawer / pane stripe alt */
+  --bg-2:        #111111;   /* hover / pre */
+  --bg-deep:     #050505;   /* pre.output background */
+
+  --rule:        #1a1a1a;   /* hairline borders */
+  --rule-strong: #2a2a2a;   /* mid borders */
+  --rule-dotted: #1f1f1f;
+
+  --fg:          #e8e6df;   /* primary text */
+  --fg-mid:      #b9b6ad;   /* secondary text */
+  --fg-muted:    #6b6b66;   /* labels, captions */
+  --fg-faint:    #3f3f3a;   /* dividers in copy */
+
+  --amber:       #ffb454;   /* accent */
+  --amber-deep:  #c8862e;   /* hover ink */
+  --sage:        #6abe6a;   /* success */
+  --rust:        #d75f5f;   /* danger */
+  --steel:       #5fa8d3;   /* info */
+
+  --pad-x:       1.5rem;
+  --pad-y:       1.1rem;
+  --top-h:       54px;
+  --status-h:    26px;
+
+  --shadow-drawer: -32px 0 60px rgba(0,0,0,0.55);
 }
+
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.4 -apple-system, system-ui, sans-serif; }
-main { max-width: 1400px; margin: 0 auto; padding: 1rem; }
-header h1 { color: var(--accent); margin: 0 0 1rem; }
-.grid.three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; }
-.pane { background: var(--panel); padding: 1rem; border-radius: 6px; min-height: 50vh; }
-.pane h2 { margin-top: 0; color: var(--accent); font-size: 1rem; text-transform: uppercase; }
-.pane ul { list-style: none; padding: 0; margin: 0; }
-.pane li { padding: 0.4rem 0; border-bottom: 1px solid #21262d; }
-.pane li:hover { color: var(--accent); }
-button { background: var(--accent); color: var(--bg); border: 0; padding: 0.3rem 0.6rem; border-radius: 4px; cursor: pointer; }
-button.danger { background: var(--danger); }
-form { display: flex; flex-direction: column; gap: 0.5rem; }
-input, textarea, select { background: var(--bg); color: var(--fg); border: 1px solid #30363d; padding: 0.4rem; border-radius: 4px; font: inherit; }
-textarea { font-family: monospace; min-height: 50vh; }
-#modal:not(:empty) { position: fixed; inset: 10vh 20vw; background: var(--panel); padding: 1.5rem; border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); z-index: 100; overflow-y: auto; }
-#status-bar { position: fixed; bottom: 0; left: 0; right: 0; background: var(--panel); padding: 0.4rem 1rem; border-top: 1px solid #30363d; color: var(--muted); }
-#status-bar:empty { display: none; }
-pre.output { background: #010409; padding: 0.8rem; border-radius: 4px; max-height: 60vh; overflow-y: auto; white-space: pre-wrap; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg-0);
+  color: var(--fg);
+  font-family: 'IBM Plex Mono', 'JetBrains Mono', 'Cascadia Code', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  font-size: 13.5px;
+  font-weight: 400;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "ss01", "ss02", "zero";
+}
+
+/* faint vignette to keep edges from feeling too flat */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(ellipse 80% 50% at 50% 0%, rgba(255, 180, 84, 0.035), transparent 60%),
+    radial-gradient(ellipse 60% 40% at 100% 100%, rgba(95, 168, 211, 0.025), transparent 60%);
+}
+
+a { color: inherit; text-decoration: none; cursor: pointer; }
+
+::selection { background: var(--amber); color: var(--bg-0); }
+
+/* =========================================================================
+   shell (top bar + main grid + status bar)
+   ========================================================================= */
+
+main.shell {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-rows: var(--top-h) 1fr;
+  min-height: calc(100vh - var(--status-h));
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+/* — top bar — */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--pad-x);
+  border-bottom: 1px solid var(--rule);
+  background: linear-gradient(180deg, rgba(255,180,84,0.03), transparent 80%);
+}
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.brand-name   { color: var(--amber); }
+.brand-prompt { color: var(--fg-muted); font-weight: 500; }
+.brand-cmd    { color: var(--fg); }
+.brand-cursor {
+  width: 0.55em;
+  height: 0.95em;
+  background: var(--amber);
+  display: inline-block;
+  margin-left: 0.15em;
+  transform: translateY(0.08em);
+  animation: blink 1.05s steps(1, end) infinite;
+}
+
+.topbar .meta {
+  display: flex;
+  gap: 1.25rem;
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.topbar .meta b {
+  color: var(--fg-mid);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+@keyframes blink {
+  0%, 55% { opacity: 1; }
+  60%, 100% { opacity: 0; }
+}
+
+/* — three-column grid — */
+section.grid.three-col {
+  display: grid;
+  grid-template-columns: 1.05fr 1.25fr 1fr;
+  gap: 0;
+  height: 100%;
+  min-height: 0;
+}
+
+/* the load-target divs become the .pane wrappers; spacers between them */
+section.grid.three-col > * + * { border-left: 1px solid var(--rule); }
+section.grid.three-col > [hx-trigger] {
+  /* before HTMX swaps, the empty placeholder still needs a background */
+  background: var(--bg-0);
+}
+
+/* =========================================================================
+   pane (a column of lists)
+   ========================================================================= */
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg-0);
+  border-radius: 0;
+  padding: 0;
+  /* override inline styles in templates that hardcode flex header */
+}
+
+.pane > header {
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.85rem var(--pad-x) 0.7rem;
+  border-bottom: 1px dotted var(--rule-strong);
+  background: var(--bg-1);
+}
+
+.pane > header h2 {
+  margin: 0;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--fg-mid);
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+.pane > header h2::before {
+  content: "▌";
+  color: var(--amber);
+  font-size: 1.1em;
+  line-height: 0.7;
+}
+
+/* breadcrumb / back-link inside header titles */
+.pane > header h2 a {
+  color: var(--fg-muted);
+  font-size: 0.85em;
+  letter-spacing: 0.1em;
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.4rem;
+  border: 1px solid var(--rule-strong);
+  border-radius: 0;
+  transition: color 120ms, border-color 120ms;
+}
+.pane > header h2 a:hover {
+  color: var(--amber);
+  border-color: var(--amber);
+}
+
+.pane > ul,
+.pane > div > ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--rule-strong) transparent;
+}
+
+.pane li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.55rem var(--pad-x);
+  border-bottom: 1px dotted var(--rule);
+  position: relative;
+  transition: background 100ms, color 100ms;
+}
+.pane li:hover {
+  background: var(--bg-2);
+  color: var(--fg);
+}
+.pane li > a {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  position: relative;
+  padding-left: 1.1ch;
+}
+.pane li > a::before {
+  content: " ";
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: var(--amber);
+  opacity: 0;
+  transition: opacity 100ms;
+}
+.pane li:hover > a::before {
+  content: "›";
+  opacity: 1;
+}
+
+.pane li button {
+  flex-shrink: 0;
+}
+
+/* detail surface inside a pane */
+.pane #nodes-detail,
+.pane #services-detail,
+.pane #apps-editor {
+  border-top: 1px dotted var(--rule);
+}
+.pane #nodes-detail:not(:empty),
+.pane #services-detail:not(:empty),
+.pane #apps-editor:not(:empty) {
+  padding: 1rem var(--pad-x);
+}
+
+.pane pre {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--fg-mid);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* =========================================================================
+   buttons — bracketed text style, no rounding
+   ========================================================================= */
+
+button {
+  appearance: none;
+  background: transparent;
+  color: var(--fg-mid);
+  border: 1px solid var(--rule-strong);
+  border-radius: 0;
+  padding: 0.22rem 0.55rem;
+  font: inherit;
+  font-size: 0.78rem;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  text-transform: lowercase;
+  transition: color 120ms, border-color 120ms, background 120ms;
+}
+button:hover {
+  color: var(--amber);
+  border-color: var(--amber);
+}
+button:active { transform: translateY(1px); }
+button:focus-visible {
+  outline: 1px solid var(--amber);
+  outline-offset: 2px;
+}
+
+button.danger:hover {
+  color: var(--rust);
+  border-color: var(--rust);
+}
+
+/* primary button: solid amber. used on form submit. */
+button[type="submit"] {
+  color: var(--bg-0);
+  background: var(--amber);
+  border-color: var(--amber);
+  font-weight: 600;
+}
+button[type="submit"]:hover {
+  background: var(--amber-deep);
+  border-color: var(--amber-deep);
+  color: var(--bg-0);
+}
+
+/* "+" type icon buttons stay textual but tighter */
+.pane > header button {
+  padding: 0.18rem 0.5rem;
+}
+
+/* =========================================================================
+   forms — drawer-friendly stack
+   ========================================================================= */
+
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+form h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fg);
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid var(--rule-strong);
+  word-break: break-all;
+}
+
+.form-actions {
+  display: flex;
+  gap: 0.55rem;
+  margin-top: 0.4rem;
+  padding-top: 0.6rem;
+  border-top: 1px dotted var(--rule-strong);
+}
+
+form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+input, textarea, select {
+  appearance: none;
+  background: var(--bg-deep);
+  color: var(--fg);
+  border: 1px solid var(--rule-strong);
+  border-radius: 0;
+  padding: 0.55rem 0.7rem;
+  font: inherit;
+  font-size: 0.85rem;
+  caret-color: var(--amber);
+  transition: border-color 120ms, background 120ms;
+}
+input:hover, textarea:hover, select:hover { border-color: var(--fg-faint); }
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: var(--amber);
+  background: var(--bg-0);
+}
+input::placeholder { color: var(--fg-muted); opacity: 0.6; }
+input[readonly] {
+  background: transparent;
+  color: var(--fg-muted);
+  border-style: dashed;
+}
+
+textarea {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 0.85rem;
+  line-height: 1.55;
+  min-height: 55vh;
+  resize: vertical;
+  white-space: pre;
+  overflow: auto;
+}
+
+select {
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--fg-muted) 50%),
+    linear-gradient(135deg, var(--fg-muted) 50%, transparent 50%);
+  background-position: calc(100% - 14px) center, calc(100% - 8px) center;
+  background-size: 6px 6px;
+  background-repeat: no-repeat;
+  padding-right: 1.8rem;
+}
+
+/* inline form (the "+ add file" widget) */
+.pane > header form {
+  flex-direction: row !important;
+  gap: 0.35rem !important;
+  align-items: stretch;
+}
+.pane > header form input {
+  font-size: 0.78rem;
+  padding: 0.18rem 0.5rem;
+  min-width: 0;
+  flex: 1;
+}
+.pane > header form select {
+  font-size: 0.78rem;
+  padding: 0.18rem 1.5rem 0.18rem 0.4rem;
+  background-size: 5px 5px;
+}
+.pane > header form button { padding: 0.18rem 0.6rem; }
+
+/* =========================================================================
+   modal — right-side drawer
+   ========================================================================= */
+
+#modal:empty { display: none; }
+#modal:not(:empty) {
+  position: fixed;
+  inset: 0 0 var(--status-h) auto;
+  width: 480px;
+  max-width: 90vw;
+  background: var(--bg-1);
+  border-left: 1px solid var(--rule-strong);
+  padding: calc(var(--top-h) + 0.4rem) 1.6rem 1.6rem;
+  overflow-y: auto;
+  z-index: 100;
+  box-shadow: var(--shadow-drawer);
+  animation: drawer-in 220ms cubic-bezier(.2,.8,.2,1) both;
+}
+#modal:not(:empty)::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: rgba(8,8,8,0.55);
+  z-index: -1;
+  animation: scrim-in 220ms ease-out both;
+}
+
+@keyframes drawer-in {
+  from { transform: translateX(20px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+@keyframes scrim-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* =========================================================================
+   job stream output
+   ========================================================================= */
+
+pre.output, pre#job-output {
+  position: relative;
+  background: var(--bg-deep);
+  color: var(--fg-mid);
+  border: 1px solid var(--rule-strong);
+  border-radius: 0;
+  padding: 1.1rem 1rem 0.9rem;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 0.78rem;
+  line-height: 1.55;
+  max-height: 56vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+pre.output::before, pre#job-output::before {
+  content: "› STREAM";
+  position: absolute;
+  top: 0.35rem;
+  right: 0.7rem;
+  font-size: 0.6rem;
+  letter-spacing: 0.25em;
+  color: var(--amber);
+  font-weight: 600;
+}
+
+/* job modal heading carries running marker (scoped to SSE container) */
+#modal [hx-ext="sse"] h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+#modal [hx-ext="sse"] h3::before {
+  content: "●";
+  color: var(--sage);
+  animation: pulse 1.4s ease-in-out infinite;
+  font-size: 0.7em;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+
+/* =========================================================================
+   status bar — tmux-style strip pinned to viewport
+   ========================================================================= */
+
+#status-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: var(--status-h);
+  background: var(--bg-1);
+  border-top: 1px solid var(--rule);
+  display: flex;
+  align-items: center;
+  padding: 0 var(--pad-x);
+  font-size: 0.68rem;
+  color: var(--fg-muted);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  z-index: 50;
+}
+#status-bar::before {
+  content: "▌ READY";
+  color: var(--amber);
+  font-weight: 600;
+  margin-right: 1rem;
+  letter-spacing: 0.22em;
+}
+#status-bar:not(:empty) { color: var(--fg); }
+
+/* =========================================================================
+   scrollbar polish
+   ========================================================================= */
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--rule-strong);
+  border-radius: 0;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--fg-faint); }
+
+/* =========================================================================
+   HTMX swap transitions
+   ========================================================================= */
+
+.htmx-swapping { opacity: 0; transition: opacity 80ms ease-out; }
+.htmx-settling { opacity: 1; transition: opacity 140ms ease-in; }
+.htmx-request  { cursor: progress; }
+
+/* SSE: each newly-appended <pre> child gets a brief amber wash */
+pre#job-output > * {
+  animation: line-flash 540ms ease-out;
+}
+@keyframes line-flash {
+  0%   { background: rgba(255,180,84,0.16); }
+  100% { background: transparent; }
+}
+
+/* =========================================================================
+   small-screen guard (we don't promise mobile, but keep it usable)
+   ========================================================================= */
+
+@media (max-width: 1100px) {
+  section.grid.three-col {
+    grid-template-columns: 1fr;
+  }
+  section.grid.three-col > * + * {
+    border-left: 0;
+    border-top: 1px solid var(--rule);
+  }
+  #modal:not(:empty) { width: 100%; max-width: 100%; }
+}

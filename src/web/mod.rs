@@ -1,3 +1,4 @@
+pub mod assets;
 pub mod error;
 pub mod jobs;
 pub mod state;
@@ -35,6 +36,9 @@ pub async fn run(home: PathBuf, config: Arc<InsConfig>, options: WebOptions) -> 
 
     let app = Router::new()
         .route("/", get(render_index))
+        .route("/static/htmx.min.js", get(assets::htmx))
+        .route("/static/htmx-sse.js", get(assets::htmx_sse))
+        .route("/static/style.css", get(assets::style))
         .with_state(state);
 
     let listener = TcpListener::bind(options.bind)

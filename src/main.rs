@@ -4,7 +4,7 @@ use std::{env as std_env, fs, path::PathBuf};
 use crate::cli::{
     CommandContext, CommandTrait, app::AppCommand, check::CheckCommand, deploy::DeployCommand,
     docker::DockerCommand, node::NodeCommand, service::ServiceCommand, template::TemplateCommand,
-    tui::TuiCommand, version::VersionCommand, volume::VolumeCommand,
+    tui::TuiCommand, version::VersionCommand, volume::VolumeCommand, web::WebCommand,
 };
 
 mod app;
@@ -22,6 +22,7 @@ mod store;
 mod tui;
 mod version;
 mod volume;
+mod web;
 
 #[tokio::main]
 async fn main() {
@@ -56,6 +57,7 @@ async fn main() {
         Some(Command::Version(args)) => VersionCommand::run(args, ctx).await,
         Some(Command::Volume(args)) => VolumeCommand::run(args, ctx).await,
         Some(Command::Docker(args)) => DockerCommand::run(args, ctx).await,
+        Some(Command::Web(args)) => WebCommand::run(args, ctx).await,
         None => {
             InsCli::command().print_help().expect("print help");
             println!();
@@ -134,6 +136,8 @@ enum Command {
     Volume(cli::volume::VolumeArgs),
     /// Run a docker command on the selected node.
     Docker(cli::docker::DockerArgs),
+    /// Launch the browser-based UI.
+    Web(cli::web::WebArgs),
 }
 
 #[cfg(test)]

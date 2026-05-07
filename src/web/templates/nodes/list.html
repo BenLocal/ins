@@ -1,0 +1,19 @@
+<div id="nodes-pane" class="pane" hx-target="this" hx-swap="outerHTML">
+  <header style="display:flex; justify-content:space-between; align-items:center;">
+    <h2>Nodes</h2>
+    <button hx-get="/nodes/new" hx-target="#modal" hx-swap="innerHTML">+ Add</button>
+  </header>
+  <ul>
+    {% for n in nodes %}
+      <li>
+        <a hx-get="/nodes/{{ n.name }}" hx-target="#nodes-detail" hx-swap="innerHTML">{{ n.label }}</a>
+        {% if n.removable %}
+          <button hx-get="/nodes/{{ n.name }}/edit" hx-target="#modal" hx-swap="innerHTML">edit</button>
+          <button class="danger" hx-post="/nodes/{{ n.name }}/delete"
+                  hx-confirm="Delete '{{ n.name }}'?">delete</button>
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ul>
+  <div id="nodes-detail"></div>
+</div>

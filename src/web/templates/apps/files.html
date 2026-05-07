@@ -1,0 +1,33 @@
+<div id="apps-pane" class="pane" hx-target="this" hx-swap="outerHTML">
+  <header style="display:flex; justify-content:space-between; gap:0.5rem;">
+    <h2>{{ app }} <a hx-get="/apps" hx-swap="outerHTML">&#x21a9;</a></h2>
+    <form hx-post="/apps/{{ app }}/files" hx-target="#apps-pane" hx-swap="outerHTML"
+          style="display:flex; gap:0.3rem; flex-direction:row;">
+      <input name="path" placeholder="path/to/file" required>
+      <select name="kind">
+        <option value="text">file</option>
+        <option value="directory">dir</option>
+      </select>
+      <button type="submit">+</button>
+    </form>
+  </header>
+  <ul>
+    {% for entry in entries %}
+      <li>
+        {% if entry.kind == 'Directory' %}
+          &#x1F4C1; {{ entry.relative_path }}
+        {% else %}
+          <a hx-get="/apps/{{ app }}/files/{{ entry.relative_path }}" hx-target="#apps-editor" hx-swap="innerHTML">
+            {{ entry.relative_path }}
+          </a>
+          <button class="danger"
+                  hx-post="/apps/{{ app }}/files/{{ entry.relative_path }}"
+                  hx-vals='{"action": "delete"}'
+                  hx-confirm="Delete '{{ entry.relative_path }}'?"
+                  hx-target="#apps-pane" hx-swap="outerHTML">&#x00d7;</button>
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ul>
+  <div id="apps-editor"></div>
+</div>

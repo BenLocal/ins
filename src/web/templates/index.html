@@ -1,0 +1,9 @@
+{% extends "layout.html" %}
+{% block content %}
+<header><h1>ins</h1></header>
+<section class="grid three-col">
+  <div id="nodes-pane" hx-get="/nodes" hx-trigger="load" hx-swap="outerHTML"></div>
+  <div id="apps-pane" hx-get="/apps" hx-trigger="load" hx-swap="outerHTML"></div>
+  <div id="services-pane" hx-get="/services" hx-trigger="load" hx-swap="outerHTML"></div>
+</section>
+{% endblock %}

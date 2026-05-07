@@ -1,4 +1,6 @@
-use anyhow::{Context, bail};
+use anyhow::bail;
+
+pub use crate::node::detail::node_detail;
 
 use crate::{
     cli::node::{
@@ -6,7 +8,7 @@ use crate::{
         nodes_file, set_node_record,
     },
     node::types::{NodeRecord, RemoteNodeRecord},
-    tui::state::{ActiveSection, OverlayState, TuiState, clamp_index, normalize_optional},
+    tui::state::{ActiveSection, OverlayState, TuiState, clamp_index},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -133,29 +135,6 @@ pub fn node_label(node: &NodeRecord) -> String {
     }
 }
 
-pub fn node_detail(node: &NodeRecord) -> String {
-    match node {
-        NodeRecord::Local() => "name: local\ntype: local".into(),
-        NodeRecord::Remote(node) => format!(
-            "name: {}\ntype: remote\nip: {}\nport: {}\nuser: {}\nauth: {}",
-            node.name,
-            node.ip,
-            node.port,
-            node.user,
-            node.key_path
-                .as_ref()
-                .map(|path| format!("key:{path}"))
-                .unwrap_or_else(|| {
-                    if node.password.is_empty() {
-                        "password:<empty>".into()
-                    } else {
-                        "password".into()
-                    }
-                })
-        ),
-    }
-}
-
 impl TuiState {
     pub fn open_add_node_form(&mut self) {
         self.overlay = Some(OverlayState::NodeForm(NodeFormState::blank(
@@ -277,20 +256,6 @@ impl TuiState {
     }
 
     pub fn build_node_input_from_form(form: NodeFormState) -> anyhow::Result<NodeFormInput> {
-        let port = form
-            .port
-            .trim()
-            .parse::<u16>()
-            .with_context(|| format!("invalid port '{}'", form.port.trim()))?;
-
-        Ok(NodeFormInput {
-            mode: form.mode,
-            name: form.name.trim().into(),
-            ip: form.ip.trim().into(),
-            port,
-            user: form.user.trim().into(),
-            password: form.password,
-            key_path: normalize_optional(&form.key_path),
-        })
+        crate::node::persist::parse_node_form(form)
     }
 }

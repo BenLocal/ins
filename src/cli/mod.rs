@@ -4,10 +4,12 @@ pub mod deploy;
 pub mod docker;
 pub mod node;
 pub mod service;
+pub mod service_detail;
 pub mod template;
 pub mod tui;
 pub mod version;
 pub mod volume;
+pub mod web;
 
 use std::path::PathBuf;
 use std::sync::Arc;

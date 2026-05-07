@@ -1,4 +1,5 @@
 use super::ExecutionOutput;
+use tokio::sync::broadcast::error::TryRecvError;
 
 #[test]
 fn execution_output_buffers_lines_in_order() {
@@ -11,4 +12,29 @@ fn execution_output_buffers_lines_in_order() {
         output.snapshot(),
         "Starting check...\nCheck completed.\nwarning line"
     );
+}
+
+#[test]
+fn streaming_broadcasts_lines() {
+    let out = ExecutionOutput::streaming();
+    let mut rx = out.subscribe().expect("subscribed");
+    out.line("first");
+    out.line("second");
+    assert_eq!(rx.try_recv().unwrap(), "first");
+    assert_eq!(rx.try_recv().unwrap(), "second");
+    assert!(matches!(rx.try_recv().unwrap_err(), TryRecvError::Empty));
+}
+
+#[test]
+fn buffered_does_not_subscribe() {
+    let out = ExecutionOutput::buffered();
+    assert!(out.subscribe().is_none());
+}
+
+#[test]
+fn streaming_keeps_snapshot() {
+    let out = ExecutionOutput::streaming();
+    out.line("a");
+    out.line("b");
+    assert_eq!(out.snapshot(), "a\nb");
 }

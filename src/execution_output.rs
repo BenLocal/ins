@@ -1,9 +1,11 @@
 use std::sync::{Arc, Mutex};
+use tokio::sync::broadcast;
 
 #[derive(Clone, Debug)]
 pub struct ExecutionOutput {
     inner: Arc<Mutex<String>>,
     echo: bool,
+    tx: Option<broadcast::Sender<String>>,
 }
 
 impl ExecutionOutput {
@@ -11,6 +13,7 @@ impl ExecutionOutput {
         Self {
             inner: Arc::new(Mutex::new(String::new())),
             echo: true,
+            tx: None,
         }
     }
 
@@ -18,7 +21,23 @@ impl ExecutionOutput {
         Self {
             inner: Arc::new(Mutex::new(String::new())),
             echo: false,
+            tx: None,
         }
+    }
+
+    #[allow(dead_code)]
+    pub fn streaming() -> Self {
+        let (tx, _) = broadcast::channel(1024);
+        Self {
+            inner: Arc::new(Mutex::new(String::new())),
+            echo: false,
+            tx: Some(tx),
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn subscribe(&self) -> Option<broadcast::Receiver<String>> {
+        self.tx.as_ref().map(|t| t.subscribe())
     }
 
     pub fn line(&self, message: impl AsRef<str>) {
@@ -26,11 +45,16 @@ impl ExecutionOutput {
         if self.echo {
             println!("{message}");
         }
-        let mut buffer = self.inner.lock().expect("execution output lock poisoned");
-        if !buffer.is_empty() {
-            buffer.push('\n');
+        {
+            let mut buffer = self.inner.lock().expect("execution output lock poisoned");
+            if !buffer.is_empty() {
+                buffer.push('\n');
+            }
+            buffer.push_str(message);
         }
-        buffer.push_str(message);
+        if let Some(tx) = &self.tx {
+            let _ = tx.send(message.to_string());
+        }
     }
 
     pub fn error_line(&self, message: impl AsRef<str>) {
@@ -38,11 +62,16 @@ impl ExecutionOutput {
         if self.echo {
             eprintln!("{message}");
         }
-        let mut buffer = self.inner.lock().expect("execution output lock poisoned");
-        if !buffer.is_empty() {
-            buffer.push('\n');
+        {
+            let mut buffer = self.inner.lock().expect("execution output lock poisoned");
+            if !buffer.is_empty() {
+                buffer.push('\n');
+            }
+            buffer.push_str(message);
         }
-        buffer.push_str(message);
+        if let Some(tx) = &self.tx {
+            let _ = tx.send(message.to_string());
+        }
     }
 
     pub fn snapshot(&self) -> String {

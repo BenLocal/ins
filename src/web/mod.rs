@@ -1,4 +1,5 @@
 pub mod assets;
+pub mod auth;
 pub mod error;
 pub mod jobs;
 pub mod state;
@@ -39,7 +40,11 @@ pub async fn run(home: PathBuf, config: Arc<InsConfig>, options: WebOptions) -> 
         .route("/static/htmx.min.js", get(assets::htmx))
         .route("/static/htmx-sse.js", get(assets::htmx_sse))
         .route("/static/style.css", get(assets::style))
-        .with_state(state);
+        .with_state(state.clone())
+        .layer(axum::middleware::from_fn_with_state(
+            state,
+            auth::token_guard,
+        ));
 
     let listener = TcpListener::bind(options.bind)
         .await

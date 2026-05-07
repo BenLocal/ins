@@ -8,7 +8,6 @@ pub enum FileKind {
     Directory,
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct TreeEntry {
     pub relative_path: String,
@@ -41,7 +40,6 @@ fn safe_join(app_dir: &Path, rel: &str) -> anyhow::Result<PathBuf> {
     Ok(app_dir.join(candidate))
 }
 
-#[allow(dead_code)]
 pub async fn read_file(app_dir: &Path, rel: &str) -> anyhow::Result<String> {
     let path = safe_join(app_dir, rel)?;
     fs::read_to_string(&path)
@@ -97,7 +95,6 @@ pub async fn delete_file(app_dir: &Path, rel: &str) -> anyhow::Result<()> {
     }
 }
 
-#[allow(dead_code)]
 pub async fn list_tree(app_dir: &Path) -> anyhow::Result<Vec<TreeEntry>> {
     let mut out = Vec::new();
     let mut stack = vec![app_dir.to_path_buf()];

@@ -12,6 +12,12 @@ const SOURCES: &[(&str, &str)] = &[
         "nodes/detail.html",
         include_str!("templates/nodes/detail.html"),
     ),
+    ("apps/list.html", include_str!("templates/apps/list.html")),
+    ("apps/files.html", include_str!("templates/apps/files.html")),
+    (
+        "apps/editor.html",
+        include_str!("templates/apps/editor.html"),
+    ),
 ];
 
 pub fn build() -> Arc<Environment<'static>> {

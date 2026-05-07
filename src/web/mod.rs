@@ -50,6 +50,13 @@ pub async fn run(home: PathBuf, config: Arc<InsConfig>, options: WebOptions) -> 
         )
         .route("/nodes/:name/edit", get(handlers::nodes::edit_form))
         .route("/nodes/:name/delete", post(handlers::nodes::delete))
+        .route("/apps", get(handlers::apps::list))
+        .route("/apps/:app", get(handlers::apps::files_view))
+        .route("/apps/:app/files", post(handlers::apps::create))
+        .route(
+            "/apps/:app/files/*rel",
+            get(handlers::apps::editor).post(handlers::apps::save_or_delete),
+        )
         .route("/static/htmx.min.js", get(assets::htmx))
         .route("/static/htmx-sse.js", get(assets::htmx_sse))
         .route("/static/style.css", get(assets::style))

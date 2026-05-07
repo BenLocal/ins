@@ -21,7 +21,8 @@
             {{ entry.relative_path }}
           </a>
           <button class="danger"
-                  hx-post="/apps/{{ app }}/files/{{ entry.relative_path }}/delete"
+                  hx-post="/apps/{{ app }}/files/{{ entry.relative_path }}"
+                  hx-vals='{"action": "delete"}'
                   hx-confirm="Delete '{{ entry.relative_path }}'?"
                   hx-target="#apps-pane" hx-swap="outerHTML">&#x00d7;</button>
         {% endif %}

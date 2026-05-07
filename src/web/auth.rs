@@ -52,13 +52,5 @@ fn ct_eq(a: &[u8], b: &[u8]) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::ct_eq;
-
-    #[test]
-    fn ct_eq_basic() {
-        assert!(ct_eq(b"abc", b"abc"));
-        assert!(!ct_eq(b"abc", b"abd"));
-        assert!(!ct_eq(b"abc", b"abcd"));
-    }
-}
+#[path = "auth_test.rs"]
+mod auth_test;

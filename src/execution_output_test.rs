@@ -57,3 +57,13 @@ fn streaming_late_subscribe_misses_prior_lines() {
     assert!(matches!(rx.try_recv().unwrap_err(), TryRecvError::Empty));
     assert_eq!(out.snapshot(), "before\nafter");
 }
+
+#[tokio::test]
+async fn subscribe_with_backlog_is_atomic() {
+    let out = ExecutionOutput::streaming();
+    out.line("first");
+    let (backlog, mut rx) = out.subscribe_with_backlog().unwrap();
+    out.line("second");
+    assert_eq!(backlog, "first");
+    assert_eq!(rx.recv().await.unwrap(), "second");
+}

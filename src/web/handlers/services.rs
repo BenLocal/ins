@@ -58,8 +58,8 @@ pub async fn detail(
         .map_err(|e| WebError::from_anyhow(e, &headers))?;
     let svc = services
         .get(idx)
-        .ok_or_else(|| WebError::not_found(format!("service idx {idx} out of range")))?;
-    let detail_text = crate::tui::state::service_detail(svc);
+        .ok_or_else(|| WebError::not_found(format!("service idx {idx} out of range"), &headers))?;
+    let detail_text = crate::cli::service_detail::service_detail(svc);
     render(
         &s,
         "services/detail.html",
@@ -95,7 +95,7 @@ async fn start(
         .map_err(|e| WebError::from_anyhow(e, headers))?;
     let svc = services
         .get(idx)
-        .ok_or_else(|| WebError::not_found(format!("service idx {idx} out of range")))?
+        .ok_or_else(|| WebError::not_found(format!("service idx {idx} out of range"), headers))?
         .clone();
     let job = s
         .jobs
@@ -119,25 +119,30 @@ async fn start(
 pub async fn stream(
     State(s): State<AppState>,
     Path(id): Path<String>,
+    headers: HeaderMap,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, WebError> {
     let job = s
         .jobs
         .get(&id)
         .await
-        .ok_or_else(|| WebError::not_found(format!("job '{id}' not found")))?;
-    let backlog = job.output.snapshot();
-    let rx = job
+        .ok_or_else(|| WebError::not_found(format!("job '{id}' not found"), &headers))?;
+    let (backlog, rx) = job
         .output
-        .subscribe()
-        .ok_or_else(|| WebError::bad_request("job output is not streaming"))?;
-    let live = BroadcastStream::new(rx).filter_map(|item| async move {
-        item.ok().map(|line| {
-            if line.starts_with("[ins:done]") {
+        .subscribe_with_backlog()
+        .ok_or_else(|| WebError::bad_request("job output is not streaming", &headers))?;
+    let live = BroadcastStream::<String>::new(rx).filter_map(|item| async move {
+        match item {
+            Ok(line) => Some(if line.starts_with("[ins:done]") {
                 Event::default().event("done").data(line)
             } else {
                 Event::default().event("line").data(line)
-            }
-        })
+            }),
+            Err(_lagged) => Some(
+                Event::default()
+                    .event("line")
+                    .data("[stream lagged] reconnect for full output"),
+            ),
+        }
     });
     let initial = stream::iter(vec![Event::default().event("backlog").data(backlog)]);
     let merged = initial.chain(live).map(Ok::<_, Infallible>);

@@ -125,5 +125,12 @@ pub(crate) fn next_job_id() -> String {
 }
 
 #[cfg(test)]
+impl JobRegistry {
+    pub async fn jobs_for_test_insert(&self, job: Arc<Job>) {
+        self.jobs.write().await.push_back(job);
+    }
+}
+
+#[cfg(test)]
 #[path = "jobs_test.rs"]
 mod jobs_test;

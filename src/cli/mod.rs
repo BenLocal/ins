@@ -4,6 +4,7 @@ pub mod deploy;
 pub mod docker;
 pub mod node;
 pub mod service;
+pub mod service_detail;
 pub mod template;
 pub mod tui;
 pub mod version;

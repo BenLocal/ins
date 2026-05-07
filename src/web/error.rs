@@ -18,19 +18,19 @@ impl WebError {
         }
     }
 
-    pub fn bad_request(message: impl Into<String>) -> Self {
+    pub fn bad_request(message: impl Into<String>, headers: &HeaderMap) -> Self {
         Self {
             status: StatusCode::BAD_REQUEST,
             message: message.into(),
-            is_hx_request: false,
+            is_hx_request: headers.contains_key("HX-Request"),
         }
     }
 
-    pub fn not_found(message: impl Into<String>) -> Self {
+    pub fn not_found(message: impl Into<String>, headers: &HeaderMap) -> Self {
         Self {
             status: StatusCode::NOT_FOUND,
             message: message.into(),
-            is_hx_request: false,
+            is_hx_request: headers.contains_key("HX-Request"),
         }
     }
 }

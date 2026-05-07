@@ -16,8 +16,8 @@ pub struct CreateForm {
 
 #[derive(Deserialize)]
 pub struct SaveForm {
-    // Optional — absent when the POST is a delete action (no body needed).
     pub content: Option<String>,
+    pub action: Option<String>, // "delete" → delete; absent or "save" → save
 }
 
 fn render(
@@ -120,25 +120,24 @@ pub async fn create(
 
 /// Handles POST `/apps/:app/files/*rel`.
 ///
-/// Two sub-actions are multiplexed over this single wildcard route because
-/// axum 0.7 / matchit does not allow a more-specific route
-/// `/apps/:app/files/*rel/delete` to coexist with `/apps/:app/files/*rel`.
+/// Discriminates save vs delete on the `action` form field rather than the
+/// URL suffix. This prevents a file legitimately named e.g. `scripts/delete`
+/// from being incorrectly treated as a delete request.
 ///
 /// The client sends:
-/// - **delete**: POST to `…/<rel>/delete` with no `content` field → rel ends
-///   with `/delete`; strip that suffix and remove the file.
-/// - **save**: POST to `…/<rel>` with a `content` field → write the file.
+/// - **delete**: POST to `…/<rel>` with `action=delete` → remove the file.
+/// - **save**: POST to `…/<rel>` with `content=…` (and no `action` or
+///   `action=save`) → write the file.
 pub async fn save_or_delete(
     State(s): State<AppState>,
     Path((app, rel)): Path<(String, String)>,
     headers: HeaderMap,
     Form(form): Form<SaveForm>,
 ) -> WebResult<Html<String>> {
-    const DELETE_SUFFIX: &str = "/delete";
-    if let Some(file_rel) = rel.strip_suffix(DELETE_SUFFIX) {
-        // Delete action — rel captured the trailing `/delete` segment.
+    if form.action.as_deref() == Some("delete") {
+        // Delete action.
         let app_dir = s.app_home().join(&app);
-        files::delete_file(&app_dir, file_rel)
+        files::delete_file(&app_dir, &rel)
             .await
             .map_err(|e| WebError::from_anyhow(e, &headers))?;
         files_view(State(s), Path(app), headers).await

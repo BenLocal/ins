@@ -48,6 +48,23 @@ impl ExecutionOutput {
         self.tx.as_ref().map(|t| t.subscribe())
     }
 
+    /// Atomically returns the current snapshot buffer **and** a new broadcast
+    /// receiver. Holding the inner mutex while subscribing ensures that any
+    /// line in flight either lands in the snapshot (written before the lock is
+    /// acquired) or arrives on the receiver (sent after the lock is released).
+    /// There is no window where a line can be missed.
+    ///
+    /// Returns `None` for non-streaming outputs.
+    #[allow(dead_code)]
+    pub fn subscribe_with_backlog(&self) -> Option<(String, broadcast::Receiver<String>)> {
+        let tx = self.tx.as_ref()?;
+        let buffer = self.inner.lock().expect("execution output lock poisoned");
+        let rx = tx.subscribe();
+        let snapshot = buffer.clone();
+        drop(buffer);
+        Some((snapshot, rx))
+    }
+
     pub fn line(&self, message: impl AsRef<str>) {
         let message = message.as_ref();
         if self.echo {

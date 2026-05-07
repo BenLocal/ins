@@ -1,5 +1,7 @@
 use anyhow::bail;
 
+pub use crate::node::detail::node_detail;
+
 use crate::{
     cli::node::{
         NodeAddArgs, NodeSetArgs, add_node_record, delete_node_record, list_node_records,
@@ -130,29 +132,6 @@ pub fn node_label(node: &NodeRecord) -> String {
     match node {
         NodeRecord::Local() => "local".into(),
         NodeRecord::Remote(node) => format!("{} ({})", node.name, node.ip),
-    }
-}
-
-pub fn node_detail(node: &NodeRecord) -> String {
-    match node {
-        NodeRecord::Local() => "name: local\ntype: local".into(),
-        NodeRecord::Remote(node) => format!(
-            "name: {}\ntype: remote\nip: {}\nport: {}\nuser: {}\nauth: {}",
-            node.name,
-            node.ip,
-            node.port,
-            node.user,
-            node.key_path
-                .as_ref()
-                .map(|path| format!("key:{path}"))
-                .unwrap_or_else(|| {
-                    if node.password.is_empty() {
-                        "password:<empty>".into()
-                    } else {
-                        "password".into()
-                    }
-                })
-        ),
     }
 }
 

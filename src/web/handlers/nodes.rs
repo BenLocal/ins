@@ -89,8 +89,8 @@ pub async fn detail(
             NodeRecord::Local() => name == "local",
             NodeRecord::Remote(r) => r.name == name,
         })
-        .map(crate::tui::state::node_detail)
-        .ok_or_else(|| WebError::not_found(format!("node '{name}' not found")))?;
+        .map(crate::node::detail::node_detail)
+        .ok_or_else(|| WebError::not_found(format!("node '{name}' not found"), &headers))?;
     render(
         &s,
         "nodes/detail.html",
@@ -117,7 +117,7 @@ pub async fn edit_form(
             NodeRecord::Remote(r) if r.name == name => Some(r),
             _ => None,
         })
-        .ok_or_else(|| WebError::not_found(format!("node '{name}' not found")))?;
+        .ok_or_else(|| WebError::not_found(format!("node '{name}' not found"), &headers))?;
     let action = format!("/nodes/{}", remote.name);
     render_form(
         &s,

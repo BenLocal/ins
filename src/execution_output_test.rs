@@ -38,3 +38,22 @@ fn streaming_keeps_snapshot() {
     out.line("b");
     assert_eq!(out.snapshot(), "a\nb");
 }
+
+#[test]
+fn streaming_broadcasts_error_lines() {
+    let out = ExecutionOutput::streaming();
+    let mut rx = out.subscribe().expect("subscribed");
+    out.error_line("oops");
+    assert_eq!(rx.try_recv().unwrap(), "oops");
+}
+
+#[test]
+fn streaming_late_subscribe_misses_prior_lines() {
+    let out = ExecutionOutput::streaming();
+    out.line("before");
+    let mut rx = out.subscribe().expect("subscribed");
+    out.line("after");
+    assert_eq!(rx.try_recv().unwrap(), "after");
+    assert!(matches!(rx.try_recv().unwrap_err(), TryRecvError::Empty));
+    assert_eq!(out.snapshot(), "before\nafter");
+}

@@ -25,6 +25,10 @@ impl ExecutionOutput {
         }
     }
 
+    /// Creates an output that keeps the snapshot buffer **and** broadcasts each
+    /// line to subscribers. Call [`subscribe`](Self::subscribe) before the job
+    /// starts; late subscribers miss already-sent lines but can replay via
+    /// [`snapshot`](Self::snapshot). Channel capacity is 1024.
     #[allow(dead_code)]
     pub fn streaming() -> Self {
         let (tx, _) = broadcast::channel(1024);
@@ -35,6 +39,10 @@ impl ExecutionOutput {
         }
     }
 
+    /// Returns a new broadcast receiver, or `None` for non-streaming outputs
+    /// (`buffered()` / `stdout()`). Receivers created after lines have already
+    /// been emitted will not see them — use [`snapshot`](Self::snapshot) for
+    /// catch-up.
     #[allow(dead_code)]
     pub fn subscribe(&self) -> Option<broadcast::Receiver<String>> {
         self.tx.as_ref().map(|t| t.subscribe())

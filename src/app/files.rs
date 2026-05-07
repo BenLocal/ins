@@ -19,6 +19,11 @@ fn safe_join(app_dir: &Path, rel: &str) -> anyhow::Result<PathBuf> {
     if rel.is_empty() {
         return Err(anyhow!("invalid relative path: empty"));
     }
+    if rel.trim() != rel {
+        return Err(anyhow!(
+            "invalid relative path: leading/trailing whitespace"
+        ));
+    }
     if rel.contains('\0') {
         return Err(anyhow!("invalid relative path: contains NUL"));
     }

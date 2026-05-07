@@ -56,3 +56,17 @@ async fn delete_removes_file_and_dir() {
     delete_file(&dir, "d").await.unwrap();
     assert!(read_file(&dir, "d/x.txt").await.is_err());
 }
+
+#[tokio::test]
+async fn safe_join_rejects_nul() {
+    let (_g, dir) = make_app().await;
+    let err = read_file(&dir, "foo\0bar").await.unwrap_err();
+    assert!(format!("{err}").contains("NUL"));
+}
+
+#[tokio::test]
+async fn safe_join_rejects_whitespace() {
+    let (_g, dir) = make_app().await;
+    let err = read_file(&dir, " foo.txt").await.unwrap_err();
+    assert!(format!("{err}").contains("whitespace"));
+}

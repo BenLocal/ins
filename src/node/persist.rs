@@ -1,5 +1,7 @@
 use anyhow::Context;
 
+// Re-exported for use by `src/web/handlers/nodes.rs` (Task 11).
+// pub(crate) (not pub) because the underlying items in cli::node are pub(crate).
 #[allow(unused_imports)]
 pub(crate) use crate::cli::node::{
     NodeAddArgs, NodeSetArgs, add_node_record, delete_node_record, list_node_records, nodes_file,

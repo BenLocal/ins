@@ -27,17 +27,8 @@ pub struct WebOptions {
     pub token: Option<String>,
 }
 
-pub async fn run(home: PathBuf, config: Arc<InsConfig>, options: WebOptions) -> anyhow::Result<()> {
-    let token_str = options.token.clone().unwrap_or_else(|| "none".to_string());
-    let state = AppState {
-        home: Arc::new(home),
-        config,
-        jobs: Arc::new(crate::web::jobs::JobRegistry::default()),
-        token: options.token.map(Arc::new),
-        templates: crate::web::templates::build(),
-    };
-
-    let app = Router::new()
+pub(crate) fn build_router(state: AppState) -> Router {
+    Router::new()
         .route("/", get(handlers::index::render))
         .route(
             "/nodes",
@@ -75,8 +66,19 @@ pub async fn run(home: PathBuf, config: Arc<InsConfig>, options: WebOptions) -> 
         .layer(axum::middleware::from_fn_with_state(
             state,
             auth::token_guard,
-        ));
+        ))
+}
 
+pub async fn run(home: PathBuf, config: Arc<InsConfig>, options: WebOptions) -> anyhow::Result<()> {
+    let token_str = options.token.clone().unwrap_or_else(|| "none".to_string());
+    let state = AppState {
+        home: Arc::new(home),
+        config,
+        jobs: Arc::new(crate::web::jobs::JobRegistry::default()),
+        token: options.token.map(Arc::new),
+        templates: crate::web::templates::build(),
+    };
+    let app = build_router(state);
     let listener = TcpListener::bind(options.bind)
         .await
         .with_context(|| format!("bind {}", options.bind))?;
@@ -89,3 +91,7 @@ pub async fn run(home: PathBuf, config: Arc<InsConfig>, options: WebOptions) -> 
         .await
         .context("axum serve")
 }
+
+#[cfg(test)]
+#[path = "web_test.rs"]
+mod web_test;

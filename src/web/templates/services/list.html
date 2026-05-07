@@ -1,0 +1,14 @@
+<div id="services-pane" class="pane" hx-target="this" hx-swap="outerHTML"
+     hx-get="/services" hx-trigger="reload-services from:body">
+  <h2>Services</h2>
+  <ul>
+    {% for svc in services %}
+      <li>
+        <a hx-get="/services/{{ loop.index0 }}" hx-target="#services-detail" hx-swap="innerHTML">{{ svc.label }}</a>
+        <button hx-post="/services/{{ loop.index0 }}/check" hx-target="#modal" hx-swap="innerHTML">check</button>
+        <button hx-post="/services/{{ loop.index0 }}/deploy" hx-target="#modal" hx-swap="innerHTML">deploy</button>
+      </li>
+    {% endfor %}
+  </ul>
+  <div id="services-detail"></div>
+</div>

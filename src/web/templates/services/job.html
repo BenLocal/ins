@@ -1,0 +1,8 @@
+<div hx-ext="sse" sse-connect="/jobs/{{ job_id }}/stream" sse-close="done">
+  <h3>{{ mode }} &mdash; {{ service }}</h3>
+  <pre id="job-output" class="output" sse-swap="line" hx-swap="beforeend"></pre>
+  <div sse-swap="done"
+       hx-on::sse-message="htmx.trigger(document.body, 'reload-services')"></div>
+  <button type="button"
+          hx-on::click="document.getElementById('modal').replaceChildren()">Close</button>
+</div>

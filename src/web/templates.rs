@@ -18,6 +18,18 @@ const SOURCES: &[(&str, &str)] = &[
         "apps/editor.html",
         include_str!("templates/apps/editor.html"),
     ),
+    (
+        "services/list.html",
+        include_str!("templates/services/list.html"),
+    ),
+    (
+        "services/detail.html",
+        include_str!("templates/services/detail.html"),
+    ),
+    (
+        "services/job.html",
+        include_str!("templates/services/job.html"),
+    ),
 ];
 
 pub fn build() -> Arc<Environment<'static>> {

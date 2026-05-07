@@ -57,6 +57,17 @@ pub async fn run(home: PathBuf, config: Arc<InsConfig>, options: WebOptions) -> 
             "/apps/:app/files/*rel",
             get(handlers::apps::editor).post(handlers::apps::save_or_delete),
         )
+        .route("/services", get(handlers::services::list))
+        .route("/services/:idx", get(handlers::services::detail))
+        .route(
+            "/services/:idx/check",
+            post(handlers::services::start_check),
+        )
+        .route(
+            "/services/:idx/deploy",
+            post(handlers::services::start_deploy),
+        )
+        .route("/jobs/:id/stream", get(handlers::services::stream))
         .route("/static/htmx.min.js", get(assets::htmx))
         .route("/static/htmx-sse.js", get(assets::htmx_sse))
         .route("/static/style.css", get(assets::style))

@@ -12,19 +12,20 @@ use crate::pipeline::PipelineMode;
 use crate::store::duck::InstalledServiceRecord;
 
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
 pub enum JobState {
     Running,
+    #[allow(dead_code)]
     Done(Result<(), String>),
 }
 
-#[allow(dead_code)]
 pub struct Job {
     pub id: String,
+    #[allow(dead_code)]
     pub mode: PipelineMode,
     pub service: InstalledServiceRecord,
     pub output: ExecutionOutput,
     pub state: Arc<RwLock<JobState>>,
+    #[allow(dead_code)]
     pub started_at: DateTime<Utc>,
 }
 
@@ -33,7 +34,6 @@ pub struct JobRegistry {
     jobs: RwLock<VecDeque<Arc<Job>>>,
 }
 
-#[allow(dead_code)]
 impl JobRegistry {
     pub async fn get(&self, id: &str) -> Option<Arc<Job>> {
         self.jobs.read().await.iter().find(|j| j.id == id).cloned()

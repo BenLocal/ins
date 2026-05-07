@@ -9,10 +9,11 @@ pub use apps::{
 };
 pub use nodes::node_detail;
 pub use nodes::{NodeFormField, NodeFormInput, NodeFormMode, NodeFormState};
+pub use services::service_detail;
 
 use apps::{app_file_label, app_label, load_app_details};
 use nodes::node_label;
-use services::{service_detail, service_label};
+use services::service_label;
 
 use crate::pipeline::PipelineMode;
 use crate::{app::types::AppRecord, node::types::NodeRecord, store::duck::InstalledServiceRecord};

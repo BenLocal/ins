@@ -7,9 +7,7 @@ use anyhow::Context;
 pub use apps::{
     AppCreateField, AppCreateFormState, AppCreateKind, AppTextEditorState, AppViewState,
 };
-#[cfg(test)]
-pub use nodes::NodeFormInput;
-pub use nodes::{NodeFormField, NodeFormMode, NodeFormState};
+pub use nodes::{NodeFormField, NodeFormInput, NodeFormMode, NodeFormState};
 
 use apps::{app_file_label, app_label, load_app_details};
 use nodes::{node_detail, node_label};
@@ -589,13 +587,4 @@ pub(crate) fn previous_index(current: usize, len: usize) -> usize {
 
 pub(crate) fn clamp_index(index: usize, len: usize) -> usize {
     if len == 0 { 0 } else { index.min(len - 1) }
-}
-
-pub(crate) fn normalize_optional(value: &str) -> Option<String> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        None
-    } else {
-        Some(trimmed.into())
-    }
 }

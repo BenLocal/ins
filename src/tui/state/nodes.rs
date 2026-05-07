@@ -1,4 +1,4 @@
-use anyhow::{Context, bail};
+use anyhow::bail;
 
 use crate::{
     cli::node::{
@@ -6,7 +6,7 @@ use crate::{
         nodes_file, set_node_record,
     },
     node::types::{NodeRecord, RemoteNodeRecord},
-    tui::state::{ActiveSection, OverlayState, TuiState, clamp_index, normalize_optional},
+    tui::state::{ActiveSection, OverlayState, TuiState, clamp_index},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -277,20 +277,6 @@ impl TuiState {
     }
 
     pub fn build_node_input_from_form(form: NodeFormState) -> anyhow::Result<NodeFormInput> {
-        let port = form
-            .port
-            .trim()
-            .parse::<u16>()
-            .with_context(|| format!("invalid port '{}'", form.port.trim()))?;
-
-        Ok(NodeFormInput {
-            mode: form.mode,
-            name: form.name.trim().into(),
-            ip: form.ip.trim().into(),
-            port,
-            user: form.user.trim().into(),
-            password: form.password,
-            key_path: normalize_optional(&form.key_path),
-        })
+        crate::node::persist::parse_node_form(form)
     }
 }
